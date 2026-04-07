@@ -1,7 +1,9 @@
-let savedpasttext = []; // Variable to store the message
-let savedpastresponse = []; // Variable to store the message
+// Store conversation history (currently unused)
+let savedpasttext = []; // Variable to store user messages
+let savedpastresponse = []; // Variable to store bot responses
 
 // Section: get the Id of the talking container
+// Get references to main UI elements
 const messagesContainer = document.getElementById('messages-container');
 const messageForm = document.getElementById('message-form');
 const messageInput = document.getElementById('message-input');
@@ -20,7 +22,7 @@ const addMessage = (message, role, imgSrc) => {
   textElement.innerText = message;
   messageElement.appendChild(textElement);
   messagesContainer.appendChild(messageElement);
-  // creat the ending of the message
+  // create the ending of the message
   var clearDiv = document.createElement("div");
   clearDiv.style.clear = "both";
   messagesContainer.appendChild(clearDiv);
@@ -41,8 +43,9 @@ const sendMessage = async (message) => {
   messagesContainer.appendChild(loadingElement);
   messagesContainer.appendChild(loadingtextElement);
 
+  // Send user message to Flask backend API
   async function makePostRequest(msg) {
-    const url = 'www.example.com';  // Make a POST request to this url
+    const url = 'http://127.0.0.1:5000/chatbot';  // Make a POST request to this url
     const requestBody = {
       prompt: msg
     };
@@ -56,7 +59,7 @@ const sendMessage = async (message) => {
         body: JSON.stringify(requestBody)
       });
   
-      const data = await response.text();
+      const data = await response.json();
       // Handle the response data here
       console.log(data);
       return data;
@@ -67,9 +70,8 @@ const sendMessage = async (message) => {
     }
   }
   
-  var res = await makePostRequest(message);
-  
-  data = {"response": res};
+  // Wait for AI response
+  var data = await makePostRequest(message);
   
   // Deleting the loading animation
   const loadanimation = document.querySelector('.loading-animation');
@@ -77,6 +79,7 @@ const sendMessage = async (message) => {
   loadanimation.remove();
   loadtxt.remove();
 
+  // Display error or success message
   if (data.error) {
     // Handle the error here
     const errorMessage = JSON.stringify(data);
@@ -95,11 +98,13 @@ const sendMessage = async (message) => {
 //
 
 //Section: Button to submit to the model and get the response
+// Handle form submission when user sends a message
 messageForm.addEventListener('submit', async (event) => {
-  event.preventDefault();
+  event.preventDefault(); // Prevent page reload
   const message = messageInput.value.trim();
+  // Only send if message is not empty
   if (message !== '') {
-    messageInput.value = '';
-    await sendMessage(message);
+    messageInput.value = ''; // Clear input field
+    await sendMessage(message); // Send message to AI
   }
 });

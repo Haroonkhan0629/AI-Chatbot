@@ -1,6 +1,3 @@
 Flask
-Flask_Cors
-torch
-torchvision
-torchaudio
-transformers==4.*
+Flask-Cors
+requests
