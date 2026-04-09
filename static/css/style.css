@@ -5,7 +5,15 @@
   box-sizing: border-box;
 }
 
+html {
+  height: 100%;
+}
+
 body {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   font-family: Arial, sans-serif;
   padding-left: 5em;
   padding-right: 5em;
@@ -39,6 +47,10 @@ header {
 
 main {
   padding: 20px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 footer {
@@ -65,6 +77,9 @@ footer a {
 /* Chatbot box head*/
 .chatbot {
   max-width: 100em;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 
@@ -318,7 +333,9 @@ option:hover {
 }
 
 .spacer {
-  min-height: 37em;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .purple {
