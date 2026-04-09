@@ -229,20 +229,20 @@ Note: The containerized app still needs access to a running Ollama service. Ensu
 
 ```text
 LLM_application_chatbot/
-	index.html              # Static HTML — served by Netlify
-	netlify.toml            # Netlify config
-	app.py                  # Flask backend (local development only)
-	requirements.txt        # Python dependencies (local only)
-	Dockerfile              # Docker setup (local only)
+	index.html
+	netlify.toml
+	app.py
+	requirements.txt
+	Dockerfile
 	netlify/
 		functions/
-			chatbot.js      # Serverless function — calls Groq API
+			chatbot.js
 	static/
 		script.js
 		css/
 			style.css
 	templates/
-		index.html          # Flask template (local development only)
+		index.html
 ```
 
 ## Summary
