@@ -1,17 +1,18 @@
-// Store conversation history (currently unused)
+// Store conversation history for multi-turn context
 let savedpasttext = []; // Variable to store user messages
 let savedpastresponse = []; // Variable to store bot responses
+const conversationHistory = []; // Sent to backend for context-aware responses
 
-// Section: get the Id of the talking container
+// Get the Id of the talking container
 // Get references to main UI elements
 const messagesContainer = document.getElementById('messages-container');
 const messageForm = document.getElementById('message-form');
 const messageInput = document.getElementById('message-input');
 //
 
-//Section: function to creat the dialogue window
+// Function to creat the dialogue window
 const addMessage = (message, role, imgSrc) => {
-  // creat elements in the dialogue window
+  // create elements in the dialogue window
   const messageElement = document.createElement('div');
   const textElement = document.createElement('p');
   messageElement.className = `message ${role}`;
@@ -30,7 +31,7 @@ const addMessage = (message, role, imgSrc) => {
 //
 
 
-//Section: Calling the model
+// Calling the model
 const sendMessage = async (message) => {
   // addMessage(message, 'user','user.jpeg');
   addMessage(message, 'user','../static/user.jpeg');
@@ -43,11 +44,12 @@ const sendMessage = async (message) => {
   messagesContainer.appendChild(loadingElement);
   messagesContainer.appendChild(loadingtextElement);
 
-  // Send user message to Flask backend API
+  // Send user message to Netlify Function backend
   async function makePostRequest(msg) {
-    const url = 'http://127.0.0.1:5000/chatbot';  // Make a POST request to this url
+    const url = '/.netlify/functions/chatbot';
     const requestBody = {
-      prompt: msg
+      prompt: msg,
+      history: conversationHistory
     };
   
     try {
@@ -92,12 +94,17 @@ const sendMessage = async (message) => {
     addMessage(responseMessage, 'aibot','../static/Bot_logo.png');
   }
   
-  //!!!!! code to  save the content in history
-  //
+  // Save exchange to conversation history for next request
+  if (!data.error) {
+    conversationHistory.push({ role: 'user', content: message });
+    conversationHistory.push({ role: 'assistant', content: data['response'] });
+    // Keep last 10 exchanges (20 messages)
+    if (conversationHistory.length > 20) conversationHistory.splice(0, 2);
+  }
 };
 //
 
-//Section: Button to submit to the model and get the response
+// Button to submit to the model and get the response
 // Handle form submission when user sends a message
 messageForm.addEventListener('submit', async (event) => {
   event.preventDefault(); // Prevent page reload

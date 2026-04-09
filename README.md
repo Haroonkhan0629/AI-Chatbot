@@ -1,10 +1,20 @@
 # LLM Application Chatbot
 
-A local web-based chatbot application built with Flask and JavaScript, integrated with Ollama for running LLM inference on your machine.
+A publicly deployed AI chatbot with a browser-based interface, powered by Meta's Llama 3.3 70B model via the Groq API and hosted on Netlify. Originally built with Flask and Ollama for local development, then migrated to a serverless architecture for public deployment.
+
+**Live app:** [https://ai-powered-chat.netlify.app/](https://ai-powered-chat.netlify.app/)
 
 ## Tools and Technologies Used
 
-### Backend
+### Deployed Version (Public)
+
+- JavaScript (ES6+) — frontend
+- Node.js — Netlify serverless function (backend)
+- Groq API — LLM inference in the cloud
+- Llama 3.3 70B (`llama-3.3-70b-versatile`)
+- Netlify — hosting and serverless functions
+
+### Local Development Version
 
 - Python 3.10+
 - Flask
@@ -12,29 +22,44 @@ A local web-based chatbot application built with Flask and JavaScript, integrate
 - Requests
 - Ollama (local LLM runtime)
 - Llama 3.2 model (`llama3.2:latest`)
+- Docker (optional containerised setup)
 
-### Frontend
+### General
 
-- HTML5
-- CSS3
-- JavaScript (ES6+)
-
-### DevOps and Environment
-
-- Docker (optional containerized setup)
+- HTML5 / CSS3
 - Git and GitHub
 - VS Code
 
 ## Key Features
 
-- Browser-based chatbot interface
-- Flask backend with REST endpoint for chat requests
-- Integration with local Ollama model inference
-- Conversation context support with short-term history
-- Error handling for Ollama connection and runtime failures
+- Publicly accessible browser-based chatbot interface
+- Serverless backend — no server to maintain, scales automatically
+- Multi-turn conversation memory (last 10 exchanges sent with each request)
+- API key secured server-side, never exposed to the browser
+- Local development mode using Flask + Ollama for offline use
 - CORS enabled for frontend/backend communication
 
-## Prerequisites
+## Deploying to Netlify (Public)
+
+### Prerequisites
+
+- A [Groq API key](https://console.groq.com) (free)
+- The project pushed to a GitHub repository
+
+### Steps
+
+1. Go to [app.netlify.com](https://app.netlify.com) → Add new site → Import from Git
+2. Select your repository
+3. Set **Base directory** to `LLM_application_chatbot`
+4. Leave build command blank; set **Publish directory** to `.`
+5. Go to Site Settings → Environment variables → add `GROQ_API_KEY` = your key
+6. Deploy — your live URL will be `https://ai-powered-chat.netlify.app/`
+
+---
+
+## Running Locally (Flask + Ollama)
+
+### Prerequisites
 
 Install the following before running the project:
 
@@ -136,7 +161,7 @@ docker run -p 5000:5000 llm-application-chatbot
 
 Note: The containerized app still needs access to a running Ollama service. Ensure Ollama is available from the container network.
 
-## API Endpoint
+## API Endpoint (Local Flask Version)
 
 - `POST /chatbot`
 	- Request body:
@@ -172,17 +197,22 @@ Note: The containerized app still needs access to a running Ollama service. Ensu
 
 ```text
 LLM_application_chatbot/
-	app.py
-	requirements.txt
-	Dockerfile
+	index.html              # Static HTML — served by Netlify
+	netlify.toml            # Netlify config
+	app.py                  # Flask backend (local development only)
+	requirements.txt        # Python dependencies (local only)
+	Dockerfile              # Docker setup (local only)
+	netlify/
+		functions/
+			chatbot.js      # Serverless function — calls Groq API
 	static/
 		script.js
 		css/
 			style.css
 	templates/
-		index.html
+		index.html          # Flask template (local development only)
 ```
 
 ## Summary
 
-Built a local Flask-based chatbot application with a web UI that communicates with an Ollama-hosted LLM model. The project uses Python for backend APIs, JavaScript for client-side interaction, and supports both local virtual environment setup and optional Docker-based execution.
+Built a publicly deployed AI chatbot with a browser-based UI powered by Meta's Llama 3.3 70B via the Groq API. The backend runs as a Netlify serverless function, keeping the API key secure and the app free to host. Originally developed locally using Flask, Python, and Ollama, then migrated to a serverless architecture for public deployment.
