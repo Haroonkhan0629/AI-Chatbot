@@ -43,17 +43,49 @@ A publicly deployed AI chatbot with a browser-based interface, powered by Meta's
 
 ### Prerequisites
 
-- A [Groq API key](https://console.groq.com) (free)
+- A [Groq API key](https://console.groq.com) (free account, no credit card)
 - The project pushed to a GitHub repository
 
-### Steps
+### 1. Get a Groq API Key
 
-1. Go to [app.netlify.com](https://app.netlify.com) → Add new site → Import from Git
-2. Select your repository
-3. Set **Base directory** to `LLM_application_chatbot`
-4. Leave build command blank; set **Publish directory** to `.`
-5. Go to Site Settings → Environment variables → add `GROQ_API_KEY` = your key
-6. Deploy — your live URL will be `https://ai-powered-chat.netlify.app/`
+- Go to [console.groq.com](https://console.groq.com) and sign up or log in
+- Navigate to **API Keys** → **Create API Key**
+- Copy the key — you will need it in step 4
+
+### 2. Push the Project to GitHub
+
+If not already on GitHub, initialise a repo and push:
+
+```bash
+git init
+git add .
+git commit -m "initial commit"
+git remote add origin <your-github-repo-url>
+git push -u origin main
+```
+
+### 3. Connect the Repo to Netlify
+
+- Go to [app.netlify.com](https://app.netlify.com)
+- Click **Add new site** → **Import an existing project** → **GitHub**
+- Authorise Netlify and select your repository
+- Leave **Base directory** blank (the `netlify.toml` handles configuration automatically)
+- Leave **Build command** blank
+- Set **Publish directory** to `.`
+- Click **Deploy site**
+
+### 4. Add the Groq API Key as an Environment Variable
+
+- In Netlify, go to **Site configuration** → **Environment variables**
+- Click **Add a variable**
+- Set **Key** to `GROQ_API_KEY` and **Value** to your key from step 1
+- Click **Save**
+- Go to **Deploys** → **Trigger deploy** → **Deploy site** to apply the new variable
+
+### 5. Open the Live App
+
+- Your site will be live at the URL shown on the Netlify dashboard (e.g. `https://your-site-name.netlify.app`)
+- Open it in any browser and start chatting
 
 ---
 
