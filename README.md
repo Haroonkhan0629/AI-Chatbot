@@ -45,6 +45,19 @@ A publicly deployed AI chatbot with a browser-based interface, powered by Meta's
 - Local development mode using Flask + Ollama for offline use
 - CORS enabled for frontend/backend communication
 
+## How It Works
+
+The app has two completely separate backend implementations that serve the same purpose — receiving a message, generating an AI reply, and returning it to the browser. Which one runs depends on how you use the app.
+
+| | Deployed (Public) | Local Development |
+|---|---|---|
+| **Backend file** | `netlify/functions/chatbot.js` | `app.py` |
+| **Runs on** | Netlify's servers | Your machine |
+| **AI model** | Llama 3.3 70B via Groq API | Llama 3.2 via Ollama |
+| **API key required** | Yes (stored in Netlify env vars) | No |
+
+In both cases, `script.js` in the browser sends the user's message and conversation history as a POST request to the backend. The backend calls the AI, gets a reply, and returns it to `script.js` to display on screen.
+
 ## Deploying to Netlify (Public)
 
 ### Prerequisites
