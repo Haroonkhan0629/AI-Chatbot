@@ -43,7 +43,7 @@ header {
 }
 
 main {
-  padding: 20px 5em;
+  padding: 20px;
   padding-top: 3em;
   flex: 1;
   display: flex;
@@ -74,6 +74,7 @@ footer a {
 /* ---------------- */
 /* Chatbot box head*/
 .chatbot {
+  width: 100%;
   max-width: 100em;
   flex: 1;
   display: flex;
