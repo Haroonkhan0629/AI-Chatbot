@@ -4,6 +4,12 @@ A publicly deployed AI chatbot with a browser-based interface, powered by Meta's
 
 **Live app:** [https://ai-powered-chat.netlify.app/](https://ai-powered-chat.netlify.app/)
 
+## Screenshots
+
+> Add screenshots to a `screenshots/` folder in this repo, then update the paths below.
+
+![Chatbot interface](screenshots/chatbot.png)
+
 ## Tools and Technologies Used
 
 ### Deployed Version (Public)
@@ -214,16 +220,29 @@ Note: The containerized app still needs access to a running Ollama service. Ensu
 
 ## Troubleshooting
 
-- Error: Cannot connect to Ollama
-	- Confirm `ollama serve` is running.
-	- Confirm Ollama is listening on `http://localhost:11434`.
-- Model not found
-	- Run `ollama pull llama3.2:latest`.
-- Flask server does not start
-	- Ensure virtual environment is activated.
-	- Reinstall dependencies with `pip install -r requirements.txt`.
-- Port already in use
-	- Stop the conflicting process or run on another port.
+### Deployed Version (Netlify)
+
+- **Chatbot returns no response or an error message**
+	- Confirm `GROQ_API_KEY` is set correctly in Netlify → Site configuration → Environment variables
+	- After adding or changing the key, trigger a new deploy: Deploys → Trigger deploy → Deploy site
+- **Function not found (404 on `/.netlify/functions/chatbot`)**
+	- Confirm `netlify.toml` is present in the repo root with `functions = "netlify/functions"`
+	- Confirm `netlify/functions/chatbot.js` exists in the repository
+- **Site loads but sends no messages**
+	- Open browser DevTools (F12) → Console tab and check for error messages
+
+### Local Version (Flask + Ollama)
+
+- **Error: Cannot connect to Ollama**
+	- Confirm `ollama serve` is running in a separate terminal
+	- Confirm Ollama is listening on `http://localhost:11434`
+- **Model not found**
+	- Run `ollama pull llama3.2:latest`
+- **Flask server does not start**
+	- Ensure the virtual environment is activated
+	- Reinstall dependencies with `pip install -r requirements.txt`
+- **Port already in use**
+	- Stop the conflicting process or change the port in `app.py`
 
 ## Project Structure
 
