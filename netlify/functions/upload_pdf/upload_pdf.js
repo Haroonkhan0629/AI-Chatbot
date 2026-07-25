@@ -99,7 +99,7 @@ exports.handler = async function (event) {
       return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'Document too large (max 500 000 chars).' }) };
 
     const chunks = splitIntoChunks(text);
-    const hfKey  = process.env.HUGGINGFACE_API_KEY ; '';
+    const hfKey  = process.env.HUGGINGFACE_API_KEY || '';
 
     let embeddings = [], embeddingsFailed = false;
     if (hfKey) {
