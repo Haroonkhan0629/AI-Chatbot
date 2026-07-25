@@ -1,7 +1,0 @@
-fastapi
-mangum
-pydantic
-sqlmodel
-pg8000
-pypdf
-requests
