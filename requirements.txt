@@ -1,14 +1,16 @@
-# Local development server
+# Web server
 fastapi
 uvicorn[standard]
 python-dotenv
-# Local sentence-transformers model (avoids HuggingFace Inference API calls)
-sentence-transformers
-# Shared with serverless functions (mangum is needed because the
-# function files instantiate it at module level on import)
+# Serverless adapter — imported at module level by the function files
 mangum
+# PDF processing & database
 pypdf
-numpy
 sqlmodel
+pg8000
+# HTTP client
 requests
 pydantic
+# Optional local dev only — install manually to use on-device embeddings:
+#   pip install sentence-transformers numpy
+# Without them the app falls back to the HuggingFace Inference API automatically.

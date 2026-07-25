@@ -3,10 +3,12 @@ let savedpasttext = []; // Variable to store user messages
 let savedpastresponse = []; // Variable to store bot responses
 const conversationHistory = []; // Sent to backend for context-aware responses
 
-// Route API calls to the local FastAPI server or Netlify Functions depending
-// on whether the page is being served from localhost.
-const _isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname);
-const apiUrl = path => _isLocal ? path : `/.netlify/functions${path}`;
+// Route API calls:
+//   localhost / 127.0.0.1  → relative path  e.g. /chatbot        (local uvicorn)
+//   *.netlify.app           → Netlify Functions  e.g. /.netlify/functions/chatbot
+//   everything else (Render, custom domain) → relative path e.g. /chatbot
+const _isNetlify = window.location.hostname.endsWith('.netlify.app');
+const apiUrl = path => _isNetlify ? `/.netlify/functions${path}` : path;
 
 // RAG state — UUID returned by upload_pdf and stored server-side in PostgreSQL
 let currentPdfId = null;

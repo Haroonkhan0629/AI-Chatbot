@@ -16,5 +16,5 @@ COPY . .
 # This informs Docker that the container will listen on port 5000 at runtime.
 EXPOSE 5000
 
-# configure the container to run in an executed manner
-CMD ["python", "app.py"]
+# Run with uvicorn — PORT is injected by Render (defaults to 5000 locally)
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-5000}"]
