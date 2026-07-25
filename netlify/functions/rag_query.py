@@ -22,13 +22,38 @@ import os
 
 import numpy as np
 import requests
-from db import PDFChunk, ensure_schema, get_engine
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from mangum import Mangum
 from pydantic import BaseModel
-from sqlmodel import Session, select
+from sqlalchemy.pool import NullPool, StaticPool
+from sqlmodel import Field, Session, SQLModel, create_engine, select
+from typing import Optional
+
+
+# ---------------------------------------------------------------------------
+# Database schema (inlined from db.py so this file is self-contained)
+# ---------------------------------------------------------------------------
+
+class PDFChunk(SQLModel, table=True):
+    __tablename__ = "pdf_chunks"
+    __table_args__ = {"extend_existing": True}
+    id: Optional[int] = Field(default=None, primary_key=True)
+    pdf_id: str = Field(index=True)
+    chunk_text: str
+    embedding: str  # JSON-serialised list[float]
+
+
+def get_engine():
+    url = os.environ.get("DATABASE_URL", "sqlite:///./local_vectors.db")
+    if url.startswith("sqlite"):
+        return create_engine(url, connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    return create_engine(url, poolclass=NullPool)
+
+
+def ensure_schema(engine):
+    SQLModel.metadata.create_all(engine)
 
 # ---------------------------------------------------------------------------
 # Pydantic models
