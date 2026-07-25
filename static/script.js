@@ -31,13 +31,12 @@ async function getPdfJs() {
   if (window.pdfjsLib) return window.pdfjsLib;
   await new Promise((resolve, reject) => {
     const s = document.createElement('script');
-    s.src = 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js';
+    s.src = '/static/pdf.min.js';
     s.onload = resolve;
-    s.onerror = reject;
+    s.onerror = () => reject(new Error('Failed to load PDF.js from /static/pdf.min.js'));
     document.head.appendChild(s);
   });
-  window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-    'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = '/static/pdf.worker.min.js';
   return window.pdfjsLib;
 }
 
@@ -98,7 +97,9 @@ pdfInput.addEventListener('change', async () => {
       clearPdfBtn.style.display = 'inline-block';
     }
   } catch (err) {
-    pdfStatus.textContent = `❌ ${err.message || 'Upload failed.'}`;
+    console.error('PDF upload error:', err);
+    const msg = (err instanceof Error) ? err.message : String(err?.type || err || 'Upload failed.');
+    pdfStatus.textContent = `❌ ${msg || 'Upload failed.'}`;
     pdfStatus.className = 'pdf-status error';
   }
 
