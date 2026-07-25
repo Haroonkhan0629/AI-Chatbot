@@ -31,13 +31,13 @@ async function getPdfJs() {
   if (window.pdfjsLib) return window.pdfjsLib;
   await new Promise((resolve, reject) => {
     const s = document.createElement('script');
-    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.src = 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js';
     s.onload = resolve;
     s.onerror = reject;
     document.head.appendChild(s);
   });
   window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
   return window.pdfjsLib;
 }
 
