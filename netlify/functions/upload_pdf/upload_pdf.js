@@ -19,11 +19,10 @@
 
 const { randomUUID } = require('crypto');
 const { Client }     = require('pg');
-// Use the lib path to skip the test-file read the top-level export triggers.
-// Wrap in try-catch so a module-load failure returns a clean 500, not a 502.
-let pdfParse;
-try { pdfParse = require('pdf-parse/lib/pdf-parse.js'); }
-catch (e) { console.error('pdf-parse load error:', e.message); }
+// pdfjs-dist v3 legacy build runs entirely in the main thread — no Worker threads,
+// no native bindings, no process-killing unhandled rejections.
+const pdfjs = require('pdfjs-dist/legacy/build/pdf.js');
+pdfjs.GlobalWorkerOptions.workerSrc = false; // belt-and-suspenders: disable workers
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -43,6 +42,28 @@ const CORS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
 };
+
+// ---------------------------------------------------------------------------
+// PDF text extraction (pdfjs-dist, main-thread only, no Workers)
+// ---------------------------------------------------------------------------
+
+async function extractText(buffer) {
+  const data = new Uint8Array(buffer);
+  const doc  = await pdfjs.getDocument({
+    data,
+    useWorkerFetch: false,
+    isEvalSupported: false,
+    disableFontFace:  true,
+  }).promise;
+  const pages = [];
+  for (let i = 1; i <= doc.numPages; i++) {
+    const page    = await doc.getPage(i);
+    const content = await page.getTextContent();
+    pages.push(content.items.map(item => item.str || '').join(' '));
+  }
+  await doc.destroy();
+  return pages.join('\n');
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -148,10 +169,7 @@ exports.handler = async function (event) {
     if (pdfBuffer.length > MAX_PDF_BYTES)
       return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'File exceeds the 4 MB size limit.' }) };
 
-    if (!pdfParse)
-      return { statusCode: 500, headers: CORS, body: JSON.stringify({ error: 'PDF parser unavailable.' }) };
-
-    const { text } = await pdfParse(pdfBuffer);
+    const text = await extractText(pdfBuffer);
     if (!text?.trim())
       return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'Could not extract text from this PDF.' }) };
 
