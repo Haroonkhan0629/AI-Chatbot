@@ -51,13 +51,15 @@ pdfInput.addEventListener('change', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ filename: file.name, file_data: b64 }),
     });
-    const data = await resp.json();
+    let data = {};
+    try { data = await resp.json(); } catch (_) { /* non-JSON response */ }
 
-    if (data.error) {
-      pdfStatus.textContent = `❌ ${data.error}`;
+    if (!resp.ok || data.error || !data.pdf_id) {
+      const errMsg = data.error || `Upload failed (HTTP ${resp.status}). Check Netlify function logs.`;
+      pdfStatus.textContent = `❌ ${errMsg}`;
       pdfStatus.className = 'pdf-status error';
     } else {
-      currentPdfId = data.pdf_id;  // tiny UUID — embeddings live in the DB
+      currentPdfId = data.pdf_id;
       pdfStatus.textContent = `✅ ${file.name} — ${data.count} chunks indexed`;
       pdfStatus.className = 'pdf-status success';
       clearPdfBtn.style.display = 'inline-block';
