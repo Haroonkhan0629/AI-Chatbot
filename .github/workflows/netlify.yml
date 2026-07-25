@@ -47,25 +47,8 @@ jobs:
           # Exclude the bundled dirs from the static-file deploy
           echo ".functions_bundled/" >> .netlifyignore
 
-      - name: Deploy to Netlify and lock
-        run: |
-          # Deploy and capture JSON output to get the deploy ID
-          netlify deploy --prod --functions=.functions_bundled --json \
-            1>/tmp/deploy.json
-          cat /tmp/deploy.json
-          DEPLOY_ID=$(jq -r '.deploy_id // empty' /tmp/deploy.json)
-          echo "Deploy ID: $DEPLOY_ID"
-          if [ -n "$DEPLOY_ID" ]; then
-            echo "Locking deploy so Netlify file-sync cannot overwrite it..."
-            curl -s -X POST \
-              "https://api.netlify.com/api/v1/deploys/${DEPLOY_ID}/lock" \
-              -H "Authorization: Bearer ${NETLIFY_AUTH_TOKEN}" \
-              -H "Content-Type: application/json"
-            echo ""
-            echo "Deploy locked."
-          else
-            echo "WARNING: Could not read deploy_id — skipping lock."
-          fi
+      - name: Deploy to Netlify
+        run: netlify deploy --prod --functions=.functions_bundled
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: 8ee6f2d8-fff5-482e-9505-d16ce6ba304f
