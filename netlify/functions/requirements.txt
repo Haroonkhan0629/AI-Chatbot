@@ -4,5 +4,4 @@ pydantic
 sqlmodel
 pg8000
 pypdf
-numpy
 requests

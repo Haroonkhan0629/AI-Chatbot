@@ -18,9 +18,9 @@ Required Netlify environment variables:
 from __future__ import annotations
 
 import json
+import math
 import os
 
-import numpy as np
 import requests
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -107,10 +107,10 @@ def embed_query(text_: str, api_key: str) -> list[float]:
     resp.raise_for_status()
     raw = resp.json()[0]
 
-    arr = np.array(raw, dtype=np.float32)
-    if arr.ndim > 1:
-        arr = arr.mean(axis=0)
-    return arr.tolist()
+    if raw and isinstance(raw[0], list):  # token-level → mean pool
+        n = len(raw)
+        raw = [sum(row[i] for row in raw) / n for i in range(len(raw[0]))]
+    return [float(x) for x in raw]
 
 
 def retrieve_chunks(pdf_id: str, query_embedding: list[float], engine, top_k: int = TOP_K) -> list[str]:
@@ -127,14 +127,14 @@ def retrieve_chunks(pdf_id: str, query_embedding: list[float], engine, top_k: in
     if not rows:
         return []
 
-    q = np.array(query_embedding, dtype=np.float32)
-    q_norm = np.linalg.norm(q)
+    q = query_embedding
+    q_norm = math.sqrt(sum(x * x for x in q))
 
     scored: list[tuple[float, str]] = []
     for row in rows:
-        e = np.array(json.loads(row.embedding), dtype=np.float32)
-        e_norm = np.linalg.norm(e)
-        sim = float(np.dot(q, e) / (q_norm * e_norm)) if q_norm and e_norm else 0.0
+        e = json.loads(row.embedding)
+        e_norm = math.sqrt(sum(x * x for x in e))
+        sim = sum(a * b for a, b in zip(q, e)) / (q_norm * e_norm) if q_norm and e_norm else 0.0
         scored.append((sim, row.chunk_text))
 
     scored.sort(key=lambda x: x[0], reverse=True)

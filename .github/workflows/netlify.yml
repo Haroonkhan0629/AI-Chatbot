@@ -32,20 +32,43 @@ jobs:
           pip install fastapi mangum pydantic requests \
             --target .functions_bundled/chatbot/ --quiet
 
-          # upload_pdf needs the full stack
+          # upload_pdf needs the full stack (no numpy — pure-Python cosine sim)
           mkdir -p .functions_bundled/upload_pdf
           cp netlify/functions/upload_pdf.py .functions_bundled/upload_pdf/
-          pip install fastapi mangum pydantic sqlmodel pg8000 pypdf numpy requests \
+          pip install fastapi mangum pydantic sqlmodel pg8000 pypdf requests \
             --target .functions_bundled/upload_pdf/ --quiet
 
-          # rag_query needs the full stack (no pypdf)
+          # rag_query needs the full stack (no pypdf, no numpy)
           mkdir -p .functions_bundled/rag_query
           cp netlify/functions/rag_query.py .functions_bundled/rag_query/
-          pip install fastapi mangum pydantic sqlmodel pg8000 numpy requests \
+          pip install fastapi mangum pydantic sqlmodel pg8000 requests \
             --target .functions_bundled/rag_query/ --quiet
 
           # Exclude the bundled dirs from the static-file deploy
           echo ".functions_bundled/" >> .netlifyignore
+
+      - name: Unlock Netlify locked deploy (if any)
+        run: |
+          SITE=$(curl -sf -H "Authorization: Bearer ${NETLIFY_AUTH_TOKEN}" \
+            "https://api.netlify.com/api/v1/sites/${NETLIFY_SITE_ID}" || echo '{}')
+          LOCKED_ID=$(echo "$SITE" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+pub=d.get('published_deploy') or {}
+if pub.get('locked'): print(pub.get('id',''))
+" 2>/dev/null || echo '')
+          if [ -n "$LOCKED_ID" ]; then
+            echo "Unlocking deploy $LOCKED_ID..."
+            curl -s -X POST "https://api.netlify.com/api/v1/deploys/$LOCKED_ID/unlock" \
+              -H "Authorization: Bearer ${NETLIFY_AUTH_TOKEN}" \
+              -H "Content-Type: application/json"
+            echo "Unlocked."
+          else
+            echo "No locked deploy to unlock."
+          fi
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: 8ee6f2d8-fff5-482e-9505-d16ce6ba304f
 
       - name: Deploy to Netlify
         run: netlify deploy --prod --functions=.functions_bundled

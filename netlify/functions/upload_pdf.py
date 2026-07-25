@@ -18,9 +18,10 @@ from __future__ import annotations
 import base64
 import io
 import json
+import math
+import os
 import uuid
 
-import numpy as np
 import requests
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -124,10 +125,10 @@ def embed_batch(texts: list[str], api_key: str) -> list[list[float]]:
 
     embeddings: list[list[float]] = []
     for vec in raw:
-        arr = np.array(vec, dtype=np.float32)
-        if arr.ndim > 1:            # token-level → sentence-level via mean pooling
-            arr = arr.mean(axis=0)
-        embeddings.append(arr.tolist())
+        if vec and isinstance(vec[0], list):  # token-level → mean pool to sentence vector
+            n = len(vec)
+            vec = [sum(row[i] for row in vec) / n for i in range(len(vec[0]))]
+        embeddings.append([float(x) for x in vec])
     return embeddings
 
 
