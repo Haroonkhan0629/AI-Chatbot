@@ -5,15 +5,9 @@ const conversationHistory = []; // Sent to backend for context-aware responses
 
 // Route API calls:
 //   localhost / 127.0.0.1  → relative path e.g. /chatbot        (local uvicorn)
-//   *.netlify.app           → /api/chatbot  (Netlify proxies to Render Python backend)
-//   Render URL / other      → relative path e.g. /chatbot        (Render FastAPI directly)
-const _isLocal    = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-const _isNetlify  = window.location.hostname.endsWith('.netlify.app');
-const apiUrl = path => {
-    if (_isLocal)   return path;          // /chatbot → local FastAPI
-    if (_isNetlify) return `/api${path}`; // /api/chatbot → Netlify→Render proxy
-    return path;                          // /chatbot → Render FastAPI (direct access)
-};
+//   everywhere else         → Netlify Functions e.g. /.netlify/functions/chatbot
+const _isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+const apiUrl = path => _isLocal ? path : `/.netlify/functions${path}`;
 
 // RAG state — UUID returned by upload_pdf and stored server-side in PostgreSQL
 let currentPdfId = null;

@@ -16,20 +16,32 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Set up Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
       - name: Install Netlify CLI
         run: npm install -g netlify-cli
 
-      # The Python backend now runs on Render — Netlify only needs to host
-      # the static frontend (index.html, static/) and the /api/* redirect proxy.
-      # We keep only the chatbot.js Node.js function as a fallback for direct
-      # /.netlify/functions/chatbot calls (not strictly needed with the proxy).
+      # All three functions are now Node.js — zip-it-and-ship-it runs npm install
+      # automatically for directory functions that have a package.json.
       - name: Prepare function directories
         run: |
           set -e
 
-          # chatbot — Node.js fallback only; primary path is Python on Render
-          mkdir -p .functions_bundled/chatbot
-          cp netlify/functions/chatbot.js .functions_bundled/chatbot/
+          # chatbot — flat file, no deps
+          cp netlify/functions/chatbot.js .functions_bundled/
+
+          # upload_pdf — directory function with pdf-parse + pg
+          mkdir -p .functions_bundled/upload_pdf
+          cp netlify/functions/upload_pdf/upload_pdf.js .functions_bundled/upload_pdf/
+          cp netlify/functions/upload_pdf/package.json   .functions_bundled/upload_pdf/
+
+          # rag_query — directory function with pg
+          mkdir -p .functions_bundled/rag_query
+          cp netlify/functions/rag_query/rag_query.js .functions_bundled/rag_query/
+          cp netlify/functions/rag_query/package.json  .functions_bundled/rag_query/
 
           echo ".functions_bundled/" >> .netlifyignore
 
