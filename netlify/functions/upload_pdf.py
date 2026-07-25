@@ -50,6 +50,10 @@ def get_engine():
     url = os.environ.get("DATABASE_URL", "sqlite:///./local_vectors.db")
     if url.startswith("sqlite"):
         return create_engine(url, connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    # pg8000 is a pure-Python driver — rewrite the URL dialect if needed
+    if not url.startswith("postgresql+"):
+        url = url.replace("postgres://", "postgresql+pg8000://", 1)
+        url = url.replace("postgresql://", "postgresql+pg8000://", 1)
     return create_engine(url, poolclass=NullPool)
 
 

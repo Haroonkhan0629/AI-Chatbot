@@ -2,7 +2,7 @@ fastapi
 mangum
 pydantic
 sqlmodel
-psycopg2-binary
+pg8000
 pypdf
 numpy
 requests
