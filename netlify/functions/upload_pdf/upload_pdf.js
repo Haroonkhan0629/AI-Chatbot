@@ -26,7 +26,7 @@ const CHUNK_SIZE     = 500;
 const CHUNK_OVERLAP  = 50;
 const MAX_TEXT_CHARS = 500000;
 const EMBED_BATCH    = 32;
-const HF_TIMEOUT_MS  = 5000;
+const HF_TIMEOUT_MS  = 3000; // 3 s cap — keeps total well inside Netlify's 10 s limit
 
 const CORS = {
   'Content-Type': 'application/json',
@@ -100,19 +100,23 @@ exports.handler = async function (event) {
 
     const chunks = splitIntoChunks(text);
     const hfKey  = process.env.HUGGINGFACE_API_KEY || '';
+    const pdfId  = randomUUID();
 
-    let embeddings = [], embeddingsFailed = false;
-    if (hfKey) {
+    // Run DB connection and HF embedding in parallel so their latencies overlap
+    // instead of adding up (DB cold-start ~3s + HF ~3s would exceed 10s limit).
+    async function embedAll() {
+      if (!hfKey) return null;
+      const all = [];
       for (let i = 0; i < chunks.length; i += EMBED_BATCH) {
         const vecs = await tryEmbedBatch(chunks.slice(i, i + EMBED_BATCH), hfKey);
-        if (!vecs) { embeddingsFailed = true; break; }
-        embeddings.push(...vecs);
+        if (!vecs) return null; // fall back to keyword
+        all.push(...vecs);
       }
-    } else { embeddingsFailed = true; }
-    if (embeddingsFailed) embeddings = null;
+      return all;
+    }
 
-    const pdfId  = randomUUID();
-    const client = await getDb();
+    const [client, embeddings] = await Promise.all([getDb(), embedAll()]);
+
     try {
       await ensureSchema(client);
       const embedStrs = embeddings ? embeddings.map(e => JSON.stringify(e)) : chunks.map(() => null);
