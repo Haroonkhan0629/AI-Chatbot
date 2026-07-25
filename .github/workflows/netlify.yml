@@ -19,48 +19,51 @@ jobs:
       - name: Install Netlify CLI
         run: npm install -g netlify-cli
 
-      # Netlify CLI does not auto-install Python dependencies.
-      # We manually install packages into each function's directory so
-      # the CLI bundles them into a self-contained ZIP for Lambda.
-      - name: Bundle Python functions with their dependencies
+      # zip-it-and-ship-it (used internally by netlify deploy) installs
+      # deps from requirements.txt itself — put only the .py + requirements.txt
+      # in each function directory and let the CLI handle bundling.
+      - name: Prepare function directories
         run: |
           set -e
 
-          # chatbot only needs API-call packages (no DB / numpy)
           mkdir -p .functions_bundled/chatbot
           cp netlify/functions/chatbot.py .functions_bundled/chatbot/
-          pip install fastapi mangum pydantic requests \
-            --target .functions_bundled/chatbot/ --quiet
+          printf 'fastapi\nmangum\npydantic\nrequests\n' \
+            > .functions_bundled/chatbot/requirements.txt
 
-          # upload_pdf needs the full stack (no numpy — pure-Python cosine sim)
           mkdir -p .functions_bundled/upload_pdf
           cp netlify/functions/upload_pdf.py .functions_bundled/upload_pdf/
-          pip install fastapi mangum pydantic sqlmodel pg8000 pypdf requests \
-            --target .functions_bundled/upload_pdf/ --quiet
+          printf 'fastapi\nmangum\npydantic\nsqlmodel\npg8000\npypdf\nrequests\n' \
+            > .functions_bundled/upload_pdf/requirements.txt
 
-          # rag_query needs the full stack (no pypdf, no numpy)
           mkdir -p .functions_bundled/rag_query
           cp netlify/functions/rag_query.py .functions_bundled/rag_query/
-          pip install fastapi mangum pydantic sqlmodel pg8000 requests \
-            --target .functions_bundled/rag_query/ --quiet
+          printf 'fastapi\nmangum\npydantic\nsqlmodel\npg8000\nrequests\n' \
+            > .functions_bundled/rag_query/requirements.txt
 
-          # Exclude the bundled dirs from the static-file deploy
           echo ".functions_bundled/" >> .netlifyignore
 
-      - name: Unlock Netlify locked deploy (if any)
+      - name: Unlock Netlify locked deploy
         run: |
+          # Unlock the known locked deploy (6a64de9ce57afdcd72334632) explicitly
+          echo "Unlocking known locked deploy..."
+          curl -s -X POST \
+            "https://api.netlify.com/api/v1/deploys/6a64de9ce57afdcd72334632/unlock" \
+            -H "Authorization: Bearer ${NETLIFY_AUTH_TOKEN}" \
+            -H "Content-Type: application/json"
+          echo ""
+          # Also try to unlock whatever the current published deploy is
           SITE=$(curl -sf -H "Authorization: Bearer ${NETLIFY_AUTH_TOKEN}" \
             "https://api.netlify.com/api/v1/sites/${NETLIFY_SITE_ID}" || echo '{}')
           LOCKED_ID=$(echo "$SITE" | jq -r 'if .published_deploy.locked then .published_deploy.id else "" end')
-          if [ -n "$LOCKED_ID" ]; then
-            echo "Unlocking deploy $LOCKED_ID..."
+          if [ -n "$LOCKED_ID" ] && [ "$LOCKED_ID" != "null" ]; then
+            echo "Also unlocking current locked deploy $LOCKED_ID..."
             curl -s -X POST "https://api.netlify.com/api/v1/deploys/$LOCKED_ID/unlock" \
               -H "Authorization: Bearer ${NETLIFY_AUTH_TOKEN}" \
               -H "Content-Type: application/json"
-            echo " Unlocked."
-          else
-            echo "No locked deploy found."
+            echo ""
           fi
+          echo "Done."
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: 8ee6f2d8-fff5-482e-9505-d16ce6ba304f
