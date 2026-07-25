@@ -11,8 +11,6 @@ pg8000
 # HTTP client
 requests
 pydantic
-# HuggingFace Inference Providers (feature-extraction embeddings via router.huggingface.co)
-huggingface-hub
 # Optional local dev only — install manually to use on-device embeddings:
 #   pip install sentence-transformers numpy
 # Without them the app falls back to the HuggingFace Inference API automatically.

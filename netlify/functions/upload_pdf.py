@@ -22,6 +22,7 @@ import math
 import os
 import uuid
 
+import requests
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -83,6 +84,8 @@ class ErrorResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 HF_MODEL      = "sentence-transformers/all-MiniLM-L6-v2"
+# New HuggingFace Inference Providers router (replaces deprecated api-inference.huggingface.co)
+HF_API_URL    = f"https://router.huggingface.co/hf-inference/models/{HF_MODEL}/pipeline/feature-extraction"
 CHUNK_SIZE    = 500
 CHUNK_OVERLAP = 50
 MAX_PDF_BYTES = 4 * 1024 * 1024   # 4 MB — safely within Netlify's 6 MB body limit
@@ -105,17 +108,26 @@ def split_into_chunks(text: str) -> list[str]:
 
 def embed_batch(texts: list[str], api_key: str) -> list[list[float]]:
     """
-    Embed a batch of texts via the HuggingFace Inference Providers API.
-    Uses huggingface_hub.InferenceClient which routes through the new
-    router.huggingface.co infrastructure (not the deprecated api-inference host).
+    Embed texts via HuggingFace Inference Providers (router.huggingface.co).
+    sentence-transformers models return sentence vectors directly — no mean-pooling needed.
     """
-    from huggingface_hub import InferenceClient
-    client = InferenceClient(provider="hf-inference", token=api_key)
-    result = client.feature_extraction(texts, model=HF_MODEL)
-    # InferenceClient returns an ndarray of shape (n_texts, dim) for sentence-transformers
-    if hasattr(result, "tolist"):
-        return result.tolist()
-    return [[float(x) for x in emb] for emb in result]
+    resp = requests.post(
+        HF_API_URL,
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json={"inputs": texts},
+        timeout=60,
+    )
+    resp.raise_for_status()
+    raw = resp.json()
+    # Sentence-transformers returns [[float,...], ...] directly
+    # Guard against unexpected token-level nesting just in case
+    embeddings: list[list[float]] = []
+    for vec in raw:
+        if vec and isinstance(vec[0], list):  # token-level → mean pool
+            n = len(vec)
+            vec = [sum(row[i] for row in vec) / n for i in range(len(vec[0]))]
+        embeddings.append([float(x) for x in vec])
+    return embeddings
 
 
 # ---------------------------------------------------------------------------

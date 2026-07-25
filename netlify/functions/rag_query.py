@@ -81,6 +81,8 @@ class ErrorResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 HF_MODEL     = "sentence-transformers/all-MiniLM-L6-v2"
+# New HuggingFace Inference Providers router (replaces deprecated api-inference.huggingface.co)
+HF_API_URL   = f"https://router.huggingface.co/hf-inference/models/{HF_MODEL}/pipeline/feature-extraction"
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL   = "llama-3.3-70b-versatile"
 TOP_K        = 3
@@ -93,12 +95,18 @@ MAX_TOKENS   = 1024
 
 def embed_query(text_: str, api_key: str) -> list[float]:
     """Embed a single query string via HuggingFace Inference Providers."""
-    from huggingface_hub import InferenceClient
-    client = InferenceClient(provider="hf-inference", token=api_key)
-    result = client.feature_extraction([text_], model=HF_MODEL)
-    if hasattr(result, "tolist"):
-        return result[0].tolist()
-    return [float(x) for x in result[0]]
+    resp = requests.post(
+        HF_API_URL,
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json={"inputs": [text_]},
+        timeout=60,
+    )
+    resp.raise_for_status()
+    raw = resp.json()[0]
+    if raw and isinstance(raw[0], list):  # token-level → mean pool
+        n = len(raw)
+        raw = [sum(row[i] for row in raw) / n for i in range(len(raw[0]))]
+    return [float(x) for x in raw]
 
 
 def retrieve_chunks(pdf_id: str, query_embedding: list[float], engine, top_k: int = TOP_K) -> list[str]:
