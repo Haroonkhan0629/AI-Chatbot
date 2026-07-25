@@ -89,7 +89,7 @@ async function ensureSchema(client) {
 exports.handler = async function (event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: CORS, body: '' };
   try {
-    const { filename, text } = JSON.parse(event.body ; '{}');
+    const { filename, text } = JSON.parse(event.body || '{}');
 
     if (!filename?.toLowerCase().endsWith('.pdf'))
       return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'Please upload a PDF file.' }) };
