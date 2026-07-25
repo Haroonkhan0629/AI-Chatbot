@@ -51,20 +51,15 @@ jobs:
         run: |
           SITE=$(curl -sf -H "Authorization: Bearer ${NETLIFY_AUTH_TOKEN}" \
             "https://api.netlify.com/api/v1/sites/${NETLIFY_SITE_ID}" || echo '{}')
-          LOCKED_ID=$(echo "$SITE" | python3 -c "
-import json,sys
-d=json.load(sys.stdin)
-pub=d.get('published_deploy') or {}
-if pub.get('locked'): print(pub.get('id',''))
-" 2>/dev/null || echo '')
+          LOCKED_ID=$(echo "$SITE" | jq -r 'if .published_deploy.locked then .published_deploy.id else "" end')
           if [ -n "$LOCKED_ID" ]; then
             echo "Unlocking deploy $LOCKED_ID..."
             curl -s -X POST "https://api.netlify.com/api/v1/deploys/$LOCKED_ID/unlock" \
               -H "Authorization: Bearer ${NETLIFY_AUTH_TOKEN}" \
               -H "Content-Type: application/json"
-            echo "Unlocked."
+            echo " Unlocked."
           else
-            echo "No locked deploy to unlock."
+            echo "No locked deploy found."
           fi
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
