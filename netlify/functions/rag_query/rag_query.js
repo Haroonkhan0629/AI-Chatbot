@@ -38,25 +38,35 @@ const CORS = {
 // ---------------------------------------------------------------------------
 
 async function embedQuery(text, apiKey) {
-  const resp = await fetch(HF_API_URL, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ inputs: [text] }),
-  });
-  if (!resp.ok) {
-    const body = await resp.text();
-    throw new Error(`HuggingFace API ${resp.status}: ${body}`);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const resp = await fetch(HF_API_URL, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ inputs: [text] }),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (!resp.ok) {
+      console.warn(`HuggingFace embed ${resp.status} — falling back to keyword`);
+      return null;
+    }
+    const raw = await resp.json();
+    // Handle bare array or { outputs: [...] } response shapes
+    const vecs = Array.isArray(raw) ? raw : (raw.outputs ?? raw.data ?? []);
+    let vec = vecs[0];
+    // Guard against token-level shape (array-of-arrays) → mean-pool
+    if (Array.isArray(vec[0])) {
+      const n = vec.length;
+      vec = vec[0].map((_, i) => vec.reduce((s, row) => s + row[i], 0) / n);
+    }
+    return vec;
+  } catch {
+    clearTimeout(timer);
+    console.warn('HuggingFace embed timed out — falling back to keyword');
+    return null;
   }
-  const raw = await resp.json();
-  // Handle bare array or { outputs: [...] } response shapes
-  const vecs = Array.isArray(raw) ? raw : (raw.outputs ?? raw.data ?? []);
-  let vec = vecs[0];
-  // Guard against token-level shape (array-of-arrays) → mean-pool
-  if (Array.isArray(vec[0])) {
-    const n = vec.length;
-    vec = vec[0].map((_, i) => vec.reduce((s, row) => s + row[i], 0) / n);
-  }
-  return vec;
 }
 
 function cosineSim(a, b) {
@@ -110,16 +120,19 @@ async function retrieveChunks(pdfId, query, hfKey) {
     const hasEmbeddings = rows.some(r => r.embedding !== null);
 
     if (hasEmbeddings && hfKey) {
-      // --- Semantic path ---
+      // --- Semantic path (falls back to keyword if HF times out) ---
       const queryVec = await embedQuery(query, hfKey);
-      return rows
-        .map(r => ({
-          text:  r.chunk_text,
-          score: r.embedding ? cosineSim(queryVec, JSON.parse(r.embedding)) : 0,
-        }))
-        .sort((a, b) => b.score - a.score)
-        .slice(0, TOP_K)
-        .map(r => r.text);
+      if (queryVec) {
+        return rows
+          .map(r => ({
+            text:  r.chunk_text,
+            score: r.embedding ? cosineSim(queryVec, JSON.parse(r.embedding)) : 0,
+          }))
+          .sort((a, b) => b.score - a.score)
+          .slice(0, TOP_K)
+          .map(r => r.text);
+      }
+      // queryVec was null (HF timed out) → fall through to keyword
     }
 
     // --- Keyword fallback ---

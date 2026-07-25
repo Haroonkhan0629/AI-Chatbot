@@ -19,9 +19,11 @@
 
 const { randomUUID } = require('crypto');
 const { Client }     = require('pg');
-// Use the lib path to avoid the test-file read that top-level require triggers
-// in bundled / serverless environments.
-const pdfParse       = require('pdf-parse/lib/pdf-parse.js');
+// Use the lib path to skip the test-file read the top-level export triggers.
+// Wrap in try-catch so a module-load failure returns a clean 500, not a 502.
+let pdfParse;
+try { pdfParse = require('pdf-parse/lib/pdf-parse.js'); }
+catch (e) { console.error('pdf-parse load error:', e.message); }
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -32,7 +34,8 @@ const CHUNK_SIZE    = 500;
 const CHUNK_OVERLAP = 50;
 const MAX_PDF_BYTES = 4 * 1024 * 1024; // 4 MB
 const EMBED_BATCH   = 32;
-const HF_TIMEOUT_MS = 8000;            // stay well within Netlify's 10 s limit
+// 5 s leaves ~5 s for pdf-parse + DB, comfortably within Netlify's 10 s limit
+const HF_TIMEOUT_MS = 5000;
 
 const CORS = {
   'Content-Type': 'application/json',
@@ -145,6 +148,9 @@ exports.handler = async function (event) {
     if (pdfBuffer.length > MAX_PDF_BYTES)
       return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'File exceeds the 4 MB size limit.' }) };
 
+    if (!pdfParse)
+      return { statusCode: 500, headers: CORS, body: JSON.stringify({ error: 'PDF parser unavailable.' }) };
+
     const { text } = await pdfParse(pdfBuffer);
     if (!text?.trim())
       return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'Could not extract text from this PDF.' }) };
@@ -177,13 +183,16 @@ exports.handler = async function (event) {
     const client = await getDb();
     try {
       await ensureSchema(client);
-      for (let i = 0; i < chunks.length; i++) {
-        const emb = embeddings ? JSON.stringify(embeddings[i]) : null;
-        await client.query(
-          'INSERT INTO pdf_chunks (pdf_id, chunk_text, embedding) VALUES ($1, $2, $3)',
-          [pdfId, chunks[i], emb]
-        );
-      }
+      // Bulk insert all chunks in a single query — avoids N round-trips and
+      // keeps total function time well under Netlify's 10 s limit.
+      const embedStrs = embeddings
+        ? embeddings.map(e => JSON.stringify(e))
+        : chunks.map(() => null);
+      await client.query(
+        `INSERT INTO pdf_chunks (pdf_id, chunk_text, embedding)
+         SELECT $1, unnest($2::text[]), unnest($3::text[])`,
+        [pdfId, chunks, embedStrs]
+      );
     } finally {
       await client.end();
     }
