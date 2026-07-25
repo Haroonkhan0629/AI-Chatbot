@@ -1,40 +1,32 @@
-/**
+﻿/**
  * Netlify Function — POST /.netlify/functions/upload_pdf
  *
- * Receives { filename, file_data (base64 PDF) }, extracts text, splits into
- * overlapping chunks, attempts semantic embedding via HuggingFace (8 s timeout),
- * and persists everything to PostgreSQL.
+ * Receives { filename, text } where `text` is already extracted by the browser
+ * using PDF.js (client-side).  The function never touches a PDF library, so
+ * there are zero Worker threads, zero native bindings, and zero 502 crashes.
  *
- * When HuggingFace is unavailable or slow the function still succeeds and stores
- * chunks with embedding = NULL.  rag_query.js then falls back to keyword search.
+ * Splits the text into overlapping chunks, attempts semantic embedding via
+ * HuggingFace (5 s timeout), and persists everything to PostgreSQL in a single
+ * bulk INSERT.  Falls back to keyword search if HuggingFace is unavailable.
  *
  * Returns { pdf_id, count }.
  *
  * Required Netlify environment variables:
  *   DATABASE_URL         — PostgreSQL connection string (Neon / Supabase / etc.)
- *   HUGGINGFACE_API_KEY  — hf_*** token (optional but needed for semantic RAG)
+ *   HUGGINGFACE_API_KEY  — hf_*** token (optional; enables semantic RAG)
  */
 
 'use strict';
 
 const { randomUUID } = require('crypto');
 const { Client }     = require('pg');
-// pdfjs-dist v3 legacy build runs entirely in the main thread — no Worker threads,
-// no native bindings, no process-killing unhandled rejections.
-const pdfjs = require('pdfjs-dist/legacy/build/pdf.js');
-pdfjs.GlobalWorkerOptions.workerSrc = false; // belt-and-suspenders: disable workers
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const HF_API_URL    = 'https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2/pipeline/feature-extraction';
-const CHUNK_SIZE    = 500;
-const CHUNK_OVERLAP = 50;
-const MAX_PDF_BYTES = 4 * 1024 * 1024; // 4 MB
-const EMBED_BATCH   = 32;
-// 5 s leaves ~5 s for pdf-parse + DB, comfortably within Netlify's 10 s limit
-const HF_TIMEOUT_MS = 5000;
+const HF_API_URL     = 'https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2/pipeline/feature-extraction';
+const CHUNK_SIZE     = 500;
+const CHUNK_OVERLAP  = 50;
+const MAX_TEXT_CHARS = 500000;
+const EMBED_BATCH    = 32;
+const HF_TIMEOUT_MS  = 5000;
 
 const CORS = {
   'Content-Type': 'application/json',
@@ -42,32 +34,6 @@ const CORS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
 };
-
-// ---------------------------------------------------------------------------
-// PDF text extraction (pdfjs-dist, main-thread only, no Workers)
-// ---------------------------------------------------------------------------
-
-async function extractText(buffer) {
-  const data = new Uint8Array(buffer);
-  const doc  = await pdfjs.getDocument({
-    data,
-    useWorkerFetch: false,
-    isEvalSupported: false,
-    disableFontFace:  true,
-  }).promise;
-  const pages = [];
-  for (let i = 1; i <= doc.numPages; i++) {
-    const page    = await doc.getPage(i);
-    const content = await page.getTextContent();
-    pages.push(content.items.map(item => item.str || '').join(' '));
-  }
-  await doc.destroy();
-  return pages.join('\n');
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function splitIntoChunks(text) {
   const chunks = [];
@@ -80,48 +46,25 @@ function splitIntoChunks(text) {
   return chunks;
 }
 
-/**
- * Embed a batch of texts.
- * Returns the embedding array on success, or null on any failure / timeout.
- * Never throws — callers can always handle null gracefully.
- */
 async function tryEmbedBatch(texts, apiKey) {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), HF_TIMEOUT_MS);
     const resp = await fetch(HF_API_URL, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ inputs: texts }),
       signal: controller.signal,
     });
     clearTimeout(timer);
-
-    if (!resp.ok) {
-      console.warn(`HuggingFace API ${resp.status} — falling back to keyword search`);
-      return null;
-    }
-
-    const raw = await resp.json();
-    // Handle both bare array and { outputs: [...] } response shapes
+    if (!resp.ok) { console.warn(`HF ${resp.status}`); return null; }
+    const raw  = await resp.json();
     const vecs = Array.isArray(raw) ? raw : (raw.outputs ?? raw.data ?? null);
     if (!Array.isArray(vecs)) return null;
-
-    return vecs.map(vec => {
-      // sentence-transformers returns [float, ...]; guard against token-level shape
-      if (Array.isArray(vec[0])) {
-        const n = vec.length;
-        return vec[0].map((_, i) => vec.reduce((s, row) => s + row[i], 0) / n);
-      }
-      return vec;
-    });
-  } catch (err) {
-    console.warn('HuggingFace embed failed:', err.message, '— falling back to keyword search');
-    return null;
-  }
+    return vecs.map(vec => Array.isArray(vec[0])
+      ? vec[0].map((_, i) => vec.reduce((s, r) => s + r[i], 0) / vec.length)
+      : vec);
+  } catch { console.warn('HF embed timed out'); return null; }
 }
 
 async function getDb() {
@@ -134,92 +77,53 @@ async function getDb() {
 }
 
 async function ensureSchema(client) {
-  // Create table with nullable embedding (allows keyword-only fallback rows)
   await client.query(`
     CREATE TABLE IF NOT EXISTS pdf_chunks (
-      id         SERIAL PRIMARY KEY,
-      pdf_id     TEXT NOT NULL,
-      chunk_text TEXT NOT NULL,
-      embedding  TEXT
-    )
-  `);
-  // Old deployments had embedding TEXT NOT NULL — make it nullable so new inserts work
+      id SERIAL PRIMARY KEY, pdf_id TEXT NOT NULL,
+      chunk_text TEXT NOT NULL, embedding TEXT
+    )`);
   await client.query(`ALTER TABLE pdf_chunks ALTER COLUMN embedding DROP NOT NULL`);
   await client.query(`CREATE INDEX IF NOT EXISTS idx_pdf_chunks_pdf_id ON pdf_chunks (pdf_id)`);
 }
 
-// ---------------------------------------------------------------------------
-// Handler
-// ---------------------------------------------------------------------------
-
 exports.handler = async function (event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: CORS, body: '' };
-
   try {
-    const { filename, file_data } = JSON.parse(event.body || '{}');
+    const { filename, text } = JSON.parse(event.body ; '{}');
 
     if (!filename?.toLowerCase().endsWith('.pdf'))
       return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'Please upload a PDF file.' }) };
-
-    if (!file_data)
-      return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'No file data received.' }) };
-
-    const pdfBuffer = Buffer.from(file_data, 'base64');
-
-    if (pdfBuffer.length > MAX_PDF_BYTES)
-      return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'File exceeds the 4 MB size limit.' }) };
-
-    const text = await extractText(pdfBuffer);
     if (!text?.trim())
-      return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'Could not extract text from this PDF.' }) };
+      return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'No text content received.' }) };
+    if (text.length > MAX_TEXT_CHARS)
+      return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'Document too large (max 500 000 chars).' }) };
 
     const chunks = splitIntoChunks(text);
-    const hfKey  = process.env.HUGGINGFACE_API_KEY || '';
+    const hfKey  = process.env.HUGGINGFACE_API_KEY ; '';
 
-    // --- Attempt semantic embeddings (returns null per-batch on failure) --------
-    let embeddings = [];
-    let embeddingsFailed = false;
-
+    let embeddings = [], embeddingsFailed = false;
     if (hfKey) {
       for (let i = 0; i < chunks.length; i += EMBED_BATCH) {
-        const batch = chunks.slice(i, i + EMBED_BATCH);
-        const vecs  = await tryEmbedBatch(batch, hfKey);
-        if (vecs === null) {
-          embeddingsFailed = true;
-          break;
-        }
+        const vecs = await tryEmbedBatch(chunks.slice(i, i + EMBED_BATCH), hfKey);
+        if (!vecs) { embeddingsFailed = true; break; }
         embeddings.push(...vecs);
       }
-    } else {
-      embeddingsFailed = true; // no key → skip embedding
-    }
+    } else { embeddingsFailed = true; }
+    if (embeddingsFailed) embeddings = null;
 
-    if (embeddingsFailed) embeddings = null; // signal keyword-only mode
-
-    // --- Persist to PostgreSQL -------------------------------------------------
     const pdfId  = randomUUID();
     const client = await getDb();
     try {
       await ensureSchema(client);
-      // Bulk insert all chunks in a single query — avoids N round-trips and
-      // keeps total function time well under Netlify's 10 s limit.
-      const embedStrs = embeddings
-        ? embeddings.map(e => JSON.stringify(e))
-        : chunks.map(() => null);
+      const embedStrs = embeddings ? embeddings.map(e => JSON.stringify(e)) : chunks.map(() => null);
       await client.query(
         `INSERT INTO pdf_chunks (pdf_id, chunk_text, embedding)
          SELECT $1, unnest($2::text[]), unnest($3::text[])`,
         [pdfId, chunks, embedStrs]
       );
-    } finally {
-      await client.end();
-    }
+    } finally { await client.end(); }
 
-    return {
-      statusCode: 200,
-      headers: CORS,
-      body: JSON.stringify({ pdf_id: pdfId, count: chunks.length }),
-    };
+    return { statusCode: 200, headers: CORS, body: JSON.stringify({ pdf_id: pdfId, count: chunks.length }) };
   } catch (err) {
     console.error('upload_pdf error:', err);
     return { statusCode: 500, headers: CORS, body: JSON.stringify({ error: err.message }) };

@@ -2,7 +2,6 @@
   "name": "upload-pdf",
   "version": "1.0.0",
   "dependencies": {
-    "pdfjs-dist": "3.11.174",
     "pg": "^8.13.0"
   }
 }

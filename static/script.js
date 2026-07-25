@@ -22,40 +22,73 @@ const clearPdfBtn = document.getElementById('clear-pdf-btn');
 
 
 // ---------------------------------------------------------------------------
-// PDF upload handling
+// PDF upload handling — text is extracted IN THE BROWSER via PDF.js CDN so
+// the Netlify function never needs a server-side PDF library.
 // ---------------------------------------------------------------------------
 
-/** Read a File object and return its raw bytes as a base64 string. */
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload  = () => resolve(reader.result.split(',')[1]); // strip data-URL prefix
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
+/** Lazily load PDF.js from CDN and return the pdfjsLib global. */
+async function getPdfJs() {
+  if (window.pdfjsLib) return window.pdfjsLib;
+  await new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
   });
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  return window.pdfjsLib;
+}
+
+/** Extract all text from a PDF File object using PDF.js (browser-side). */
+async function extractPdfText(file) {
+  const pdfjsLib   = await getPdfJs();
+  const arrayBuf   = await file.arrayBuffer();
+  const pdf        = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
+  const parts      = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page    = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    parts.push(content.items.map(item => item.str || '').join(' '));
+  }
+  await pdf.destroy();
+  return parts.join('\n');
 }
 
 pdfInput.addEventListener('change', async () => {
   const file = pdfInput.files[0];
   if (!file) return;
 
-  pdfStatus.textContent = '⏳ Processing PDF…';
+  pdfStatus.textContent = '⏳ Extracting text from PDF…';
   pdfStatus.className = 'pdf-status loading';
   clearPdfBtn.style.display = 'none';
   currentPdfData = null;
 
   try {
-    const b64 = await fileToBase64(file);
+    // --- Step 1: extract text in the browser (no server-side PDF library) ---
+    const text = await extractPdfText(file);
+    if (!text.trim()) {
+      pdfStatus.textContent = '❌ No text found. Is this a scanned / image-only PDF?';
+      pdfStatus.className = 'pdf-status error';
+      pdfInput.value = '';
+      return;
+    }
+
+    pdfStatus.textContent = '⏳ Indexing…';
+
+    // --- Step 2: send extracted text to the Netlify function ----------------
     const resp = await fetch(apiUrl('/upload_pdf'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename: file.name, file_data: b64 }),
+      body: JSON.stringify({ filename: file.name, text }),
     });
+
     let data = {};
     try { data = await resp.json(); } catch (_) { /* non-JSON response */ }
 
     if (!resp.ok || data.error || !data.pdf_id) {
-      const errMsg = data.error || `Upload failed (HTTP ${resp.status}). Check Netlify function logs.`;
+      const errMsg = data.error || `Upload failed (HTTP ${resp.status}).`;
       pdfStatus.textContent = `❌ ${errMsg}`;
       pdfStatus.className = 'pdf-status error';
     } else {
@@ -65,7 +98,7 @@ pdfInput.addEventListener('change', async () => {
       clearPdfBtn.style.display = 'inline-block';
     }
   } catch (err) {
-    pdfStatus.textContent = '❌ Upload failed.';
+    pdfStatus.textContent = `❌ ${err.message || 'Upload failed.'}`;
     pdfStatus.className = 'pdf-status error';
   }
 
