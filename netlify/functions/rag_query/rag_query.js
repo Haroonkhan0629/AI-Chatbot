@@ -1,15 +1,16 @@
 /**
  * Netlify Function — POST /.netlify/functions/rag_query
  *
- * Fetches text chunks for the given pdf_id, ranks them with keyword (TF-IDF)
- * scoring against the user's query, then generates an answer via Groq.
- * No external embedding API is required — retrieval is pure JS, < 1 s.
- *
- * Returns { response }.
+ * Fetches PDF chunks for the given pdf_id, then:
+ *   • If chunks have embeddings → embeds the query via HuggingFace and ranks
+ *     by cosine similarity (full semantic RAG).
+ *   • If chunks have no embeddings → ranks by keyword TF-IDF score (fallback).
+ * Returns a Groq-generated answer from the top-K context chunks.
  *
  * Required Netlify environment variables:
- *   DATABASE_URL — PostgreSQL connection string (Neon / Supabase / etc.)
- *   GROQ_API_KEY — from https://console.groq.com/keys
+ *   DATABASE_URL         — PostgreSQL connection string (Neon / Supabase / etc.)
+ *   GROQ_API_KEY         — from https://console.groq.com/keys
+ *   HUGGINGFACE_API_KEY  — hf_*** token (needed for semantic RAG path)
  */
 
 'use strict';
@@ -20,9 +21,10 @@ const { Client } = require('pg');
 // Constants
 // ---------------------------------------------------------------------------
 
+const HF_API_URL   = 'https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2/pipeline/feature-extraction';
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const GROQ_MODEL   = 'llama-3.3-70b-versatile';
-const TOP_K        = 4;
+const TOP_K        = 3;
 
 const CORS = {
   'Content-Type': 'application/json',
@@ -32,7 +34,43 @@ const CORS = {
 };
 
 // ---------------------------------------------------------------------------
-// Keyword-based retrieval (TF-IDF style, pure JS, no external API)
+// Semantic helpers
+// ---------------------------------------------------------------------------
+
+async function embedQuery(text, apiKey) {
+  const resp = await fetch(HF_API_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ inputs: [text] }),
+  });
+  if (!resp.ok) {
+    const body = await resp.text();
+    throw new Error(`HuggingFace API ${resp.status}: ${body}`);
+  }
+  const raw = await resp.json();
+  // Handle bare array or { outputs: [...] } response shapes
+  const vecs = Array.isArray(raw) ? raw : (raw.outputs ?? raw.data ?? []);
+  let vec = vecs[0];
+  // Guard against token-level shape (array-of-arrays) → mean-pool
+  if (Array.isArray(vec[0])) {
+    const n = vec.length;
+    vec = vec[0].map((_, i) => vec.reduce((s, row) => s + row[i], 0) / n);
+  }
+  return vec;
+}
+
+function cosineSim(a, b) {
+  let dot = 0, normA = 0, normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot   += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+  return normA && normB ? dot / (Math.sqrt(normA) * Math.sqrt(normB)) : 0;
+}
+
+// ---------------------------------------------------------------------------
+// Keyword fallback helpers
 // ---------------------------------------------------------------------------
 
 function tokenize(text) {
@@ -49,10 +87,14 @@ function keywordScore(chunk, queryTokens) {
     const f = freq.get(t) || 0;
     if (f > 0) score += 1 + Math.log(f);
   }
-  return score / Math.sqrt(words.length); // length-normalise
+  return score / Math.sqrt(words.length);
 }
 
-async function retrieveChunks(pdfId, query) {
+// ---------------------------------------------------------------------------
+// Retrieval — semantic if embeddings available, keyword otherwise
+// ---------------------------------------------------------------------------
+
+async function retrieveChunks(pdfId, query, hfKey) {
   const client = new Client({
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false },
@@ -60,10 +102,27 @@ async function retrieveChunks(pdfId, query) {
   await client.connect();
   try {
     const { rows } = await client.query(
-      'SELECT chunk_text FROM pdf_chunks WHERE pdf_id = $1',
+      'SELECT chunk_text, embedding FROM pdf_chunks WHERE pdf_id = $1',
       [pdfId]
     );
     if (!rows.length) return [];
+
+    const hasEmbeddings = rows.some(r => r.embedding !== null);
+
+    if (hasEmbeddings && hfKey) {
+      // --- Semantic path ---
+      const queryVec = await embedQuery(query, hfKey);
+      return rows
+        .map(r => ({
+          text:  r.chunk_text,
+          score: r.embedding ? cosineSim(queryVec, JSON.parse(r.embedding)) : 0,
+        }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, TOP_K)
+        .map(r => r.text);
+    }
+
+    // --- Keyword fallback ---
     const qTokens = tokenize(query);
     return rows
       .map(r => ({ text: r.chunk_text, score: keywordScore(r.chunk_text, qTokens) }))
@@ -91,7 +150,9 @@ exports.handler = async function (event) {
     if (!pdf_id)
       return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'pdf_id is required.' }) };
 
-    const chunks  = await retrieveChunks(pdf_id, prompt);
+    const hfKey  = process.env.HUGGINGFACE_API_KEY || '';
+    const chunks = await retrieveChunks(pdf_id, prompt, hfKey);
+
     const context = chunks.length
       ? chunks.map((c, i) => `[${i + 1}] ${c}`).join('\n\n')
       : 'No relevant content found in the document.';
