@@ -11,8 +11,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Python must be available so the Netlify CLI can install
-      # requirements.txt and bundle the Python functions.
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
@@ -21,11 +19,36 @@ jobs:
       - name: Install Netlify CLI
         run: npm install -g netlify-cli
 
-      # netlify deploy --prod reads netlify.toml, installs
-      # netlify/functions/requirements.txt, bundles each Python
-      # function with its dependencies, then deploys.
+      # Netlify CLI does not auto-install Python dependencies.
+      # We manually install packages into each function's directory so
+      # the CLI bundles them into a self-contained ZIP for Lambda.
+      - name: Bundle Python functions with their dependencies
+        run: |
+          set -e
+
+          # chatbot only needs API-call packages (no DB / numpy)
+          mkdir -p .functions_bundled/chatbot
+          cp netlify/functions/chatbot.py .functions_bundled/chatbot/
+          pip install fastapi mangum pydantic requests \
+            --target .functions_bundled/chatbot/ --quiet
+
+          # upload_pdf needs the full stack
+          mkdir -p .functions_bundled/upload_pdf
+          cp netlify/functions/upload_pdf.py .functions_bundled/upload_pdf/
+          pip install fastapi mangum pydantic sqlmodel pg8000 pypdf numpy requests \
+            --target .functions_bundled/upload_pdf/ --quiet
+
+          # rag_query needs the full stack (no pypdf)
+          mkdir -p .functions_bundled/rag_query
+          cp netlify/functions/rag_query.py .functions_bundled/rag_query/
+          pip install fastapi mangum pydantic sqlmodel pg8000 numpy requests \
+            --target .functions_bundled/rag_query/ --quiet
+
+          # Exclude the bundled dirs from the static-file deploy
+          echo ".functions_bundled/" >> .netlifyignore
+
       - name: Deploy to Netlify
-        run: netlify deploy --prod
+        run: netlify deploy --prod --functions=.functions_bundled
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: 8ee6f2d8-fff5-482e-9505-d16ce6ba304f
