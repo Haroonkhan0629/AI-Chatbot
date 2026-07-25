@@ -1,3 +1,14 @@
-Flask
-Flask-Cors
+# Local development server
+fastapi
+uvicorn[standard]
+python-dotenv
+# Local sentence-transformers model (avoids HuggingFace Inference API calls)
+sentence-transformers
+# Shared with serverless functions (mangum is needed because the
+# function files instantiate it at module level on import)
+mangum
+pypdf
+numpy
+sqlmodel
 requests
+pydantic

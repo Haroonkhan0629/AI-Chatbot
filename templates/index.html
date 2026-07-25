@@ -30,6 +30,14 @@
           <p>AI Chatbot</p>
         </div>
 
+        <!-- PDF upload for RAG -->
+        <div class="pdf-upload-section">
+          <label for="pdf-input" class="pdf-upload-label">📎 Upload PDF for RAG</label>
+          <input type="file" id="pdf-input" accept=".pdf" />
+          <span id="pdf-status" class="pdf-status"></span>
+          <button type="button" id="clear-pdf-btn" class="clear-pdf-btn" style="display:none">✕ Clear PDF</button>
+        </div>
+
         <div class="spacer" id="messages-container"></div>
         
         <form class="chat-form" id="message-form">

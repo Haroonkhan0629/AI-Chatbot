@@ -2,4 +2,7 @@ __*/
 DS*
 DS*/
 .DS_*
+.env
+.venv/
+venv/
 

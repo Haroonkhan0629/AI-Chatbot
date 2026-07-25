@@ -9,6 +9,68 @@ html {
   height: 100%;
 }
 
+/* --------------- PDF upload section --------------- */
+.pdf-upload-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  flex-wrap: wrap;
+}
+
+#pdf-input {
+  display: none;
+}
+
+.pdf-upload-label {
+  cursor: pointer;
+  background-color: #0891B2;
+  color: white;
+  padding: 6px 12px;
+  border-radius: 5px;
+  font-size: 0.85em;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.pdf-upload-label:hover {
+  background-color: #0779a0;
+}
+
+.pdf-status {
+  font-size: 0.85em;
+  color: #555;
+}
+
+.pdf-status.loading {
+  color: #b08000;
+}
+
+.pdf-status.success {
+  color: #1a7a3c;
+  font-weight: bold;
+}
+
+.pdf-status.error {
+  color: #c0392b;
+}
+
+.clear-pdf-btn {
+  background: none;
+  border: 1px solid #c0392b;
+  color: #c0392b;
+  font-size: 0.8em;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.clear-pdf-btn:hover {
+  background-color: #c0392b;
+  color: white;
+}
+/* -------------------------------------------------- */
+
 body {
   height: 100%;
   display: flex;

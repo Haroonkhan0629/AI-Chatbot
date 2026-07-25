@@ -3,115 +3,198 @@ let savedpasttext = []; // Variable to store user messages
 let savedpastresponse = []; // Variable to store bot responses
 const conversationHistory = []; // Sent to backend for context-aware responses
 
-// Get the Id of the talking container
+// Route API calls to the local FastAPI server or Netlify Functions depending
+// on whether the page is being served from localhost.
+const _isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+const apiUrl = path => _isLocal ? path : `/.netlify/functions${path}`;
+
+// RAG state — UUID returned by upload_pdf and stored server-side in PostgreSQL
+let currentPdfId = null;
+
 // Get references to main UI elements
 const messagesContainer = document.getElementById('messages-container');
 const messageForm = document.getElementById('message-form');
 const messageInput = document.getElementById('message-input');
-//
+const pdfInput = document.getElementById('pdf-input');
+const pdfStatus = document.getElementById('pdf-status');
+const clearPdfBtn = document.getElementById('clear-pdf-btn');
 
-// Function to creat the dialogue window
+
+// ---------------------------------------------------------------------------
+// PDF upload handling
+// ---------------------------------------------------------------------------
+
+/** Read a File object and return its raw bytes as a base64 string. */
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = () => resolve(reader.result.split(',')[1]); // strip data-URL prefix
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+pdfInput.addEventListener('change', async () => {
+  const file = pdfInput.files[0];
+  if (!file) return;
+
+  pdfStatus.textContent = '⏳ Processing PDF…';
+  pdfStatus.className = 'pdf-status loading';
+  clearPdfBtn.style.display = 'none';
+  currentPdfData = null;
+
+  try {
+    const b64 = await fileToBase64(file);
+    const resp = await fetch(apiUrl('/upload_pdf'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: file.name, file_data: b64 }),
+    });
+    const data = await resp.json();
+
+    if (data.error) {
+      pdfStatus.textContent = `❌ ${data.error}`;
+      pdfStatus.className = 'pdf-status error';
+    } else {
+      currentPdfId = data.pdf_id;  // tiny UUID — embeddings live in the DB
+      pdfStatus.textContent = `✅ ${file.name} — ${data.count} chunks indexed`;
+      pdfStatus.className = 'pdf-status success';
+      clearPdfBtn.style.display = 'inline-block';
+    }
+  } catch (err) {
+    pdfStatus.textContent = '❌ Upload failed.';
+    pdfStatus.className = 'pdf-status error';
+  }
+
+  // Reset so the same file can be re-uploaded after clearing
+  pdfInput.value = '';
+});
+
+clearPdfBtn.addEventListener('click', () => {
+  currentPdfId = null;
+  pdfStatus.textContent = '';
+  pdfStatus.className = 'pdf-status';
+  clearPdfBtn.style.display = 'none';
+});
+
+
+// ---------------------------------------------------------------------------
+// RAG query (PDF path)
+// ---------------------------------------------------------------------------
+
+async function makeRAGRequest(message) {
+  try {
+    const resp = await fetch(apiUrl('/rag_query'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      // Only the prompt and UUID are sent — all embeddings are retrieved from the DB
+      body: JSON.stringify({ prompt: message, pdf_id: currentPdfId }),
+    });
+    return await resp.json();
+  } catch (err) {
+    console.error('RAG request error:', err);
+    return { error: err.message };
+  }
+}
+
+
+// ---------------------------------------------------------------------------
+// Standard chat (no PDF) — calls the Netlify function
+// ---------------------------------------------------------------------------
+
+async function makePostRequest(msg) {
+  const url = apiUrl('/chatbot');
+  const requestBody = { prompt: msg, history: conversationHistory };
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody),
+    });
+    const data = await response.json();
+    console.log(data);
+    return data;
+  } catch (error) {
+    console.error('Error:', error);
+    return { error: error.message };
+  }
+}
+
+
+// ---------------------------------------------------------------------------
+// Display a message bubble in the chat window
+// ---------------------------------------------------------------------------
+
 const addMessage = (message, role, imgSrc) => {
-  // create elements in the dialogue window
   const messageElement = document.createElement('div');
   const textElement = document.createElement('p');
   messageElement.className = `message ${role}`;
   const imgElement = document.createElement('img');
-  imgElement.src = `${imgSrc}`;
-  // append the image and message to the message element
+  imgElement.src = imgSrc;
   messageElement.appendChild(imgElement);
   textElement.innerText = message;
   messageElement.appendChild(textElement);
   messagesContainer.appendChild(messageElement);
-  // create the ending of the message
-  var clearDiv = document.createElement("div");
-  clearDiv.style.clear = "both";
+  const clearDiv = document.createElement('div');
+  clearDiv.style.clear = 'both';
   messagesContainer.appendChild(clearDiv);
 };
-//
 
 
-// Calling the model
+// ---------------------------------------------------------------------------
+// Send a message — branches on whether a PDF is loaded
+// ---------------------------------------------------------------------------
+
 const sendMessage = async (message) => {
-  // addMessage(message, 'user','user.jpeg');
-  addMessage(message, 'user','../static/user.jpeg');
+  addMessage(message, 'user', '../static/user.jpeg');
+
   // Loading animation
   const loadingElement = document.createElement('div');
   const loadingtextElement = document.createElement('p');
-  loadingElement.className = `loading-animation`;
-  loadingtextElement.className = `loading-text`;
-  loadingtextElement.innerText = 'Loading....Please wait';
+  loadingElement.className = 'loading-animation';
+  loadingtextElement.className = 'loading-text';
+  loadingtextElement.innerText = currentPdfId
+    ? 'Searching PDF context… please wait'
+    : 'Loading....Please wait';
   messagesContainer.appendChild(loadingElement);
   messagesContainer.appendChild(loadingtextElement);
 
-  // Send user message to Netlify Function backend
-  async function makePostRequest(msg) {
-    const url = '/.netlify/functions/chatbot';
-    const requestBody = {
-      prompt: msg,
-      history: conversationHistory
-    };
-  
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(requestBody)
-      });
-  
-      const data = await response.json();
-      // Handle the response data here
-      console.log(data);
-      return data;
-    } catch (error) {
-      // Handle any errors that occurred during the request
-      console.error('Error:', error);
-      return error
-    }
-  }
-  
-  // Wait for AI response
-  var data = await makePostRequest(message);
-  
-  // Deleting the loading animation
-  const loadanimation = document.querySelector('.loading-animation');
-  const loadtxt = document.querySelector('.loading-text');
-  loadanimation.remove();
-  loadtxt.remove();
+  // If a PDF is loaded use RAG, otherwise use the standard chatbot endpoint
+  const data = currentPdfId
+    ? await makeRAGRequest(message)
+    : await makePostRequest(message);
 
-  // Display error or success message
+  // Remove loading animation
+  document.querySelector('.loading-animation')?.remove();
+  document.querySelector('.loading-text')?.remove();
+
+  // Display response or error
   if (data.error) {
-    // Handle the error here
-    const errorMessage = JSON.stringify(data);
-    // addMessage(errorMessage, 'error','Error.png');
-    addMessage(errorMessage, 'error','../static/Error.png');
+    addMessage(JSON.stringify(data), 'error', '../static/Error.png');
   } else {
-    // Process the normal response here
-    const responseMessage = data['response'];
-    // addMessage(responseMessage, 'aibot','Bot_logo.png');
-    addMessage(responseMessage, 'aibot','../static/Bot_logo.png');
+    addMessage(data['response'], 'aibot', '../static/Bot_logo.png');
   }
-  
-  // Save exchange to conversation history for next request
-  if (!data.error) {
+
+  // Persist to conversation history (standard path only — RAG is stateless per query)
+  if (!data.error && !currentPdfId) {
     conversationHistory.push({ role: 'user', content: message });
     conversationHistory.push({ role: 'assistant', content: data['response'] });
-    // Keep last 10 exchanges (20 messages)
     if (conversationHistory.length > 20) conversationHistory.splice(0, 2);
   }
 };
-//
 
-// Button to submit to the model and get the response
-// Handle form submission when user sends a message
+
+// ---------------------------------------------------------------------------
+// Form submit handler
+// ---------------------------------------------------------------------------
+
 messageForm.addEventListener('submit', async (event) => {
-  event.preventDefault(); // Prevent page reload
+  event.preventDefault();
   const message = messageInput.value.trim();
-  // Only send if message is not empty
   if (message !== '') {
-    messageInput.value = ''; // Clear input field
-    await sendMessage(message); // Send message to AI
+    messageInput.value = '';
+    await sendMessage(message);
   }
 });
+

@@ -1,0 +1,8 @@
+fastapi
+mangum
+pydantic
+sqlmodel
+psycopg2-binary
+pypdf
+numpy
+requests

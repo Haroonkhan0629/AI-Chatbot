@@ -1,6 +1,6 @@
 # LLM Application Chatbot
 
-A publicly deployed AI chatbot with a browser-based interface, powered by Meta's Llama 3.3 70B model via the Groq API and hosted on Netlify. Originally built with Flask and Ollama for local development, then migrated to a serverless architecture for public deployment.
+A publicly deployed AI chatbot with a browser-based interface, powered by Meta's Llama 3.3 70B model via the Groq API and hosted on Netlify. Supports standard multi-turn conversation as well as **Retrieval-Augmented Generation (RAG)** — upload a PDF and the chatbot answers questions grounded in its content. The entire backend is written in Python using FastAPI serverless functions with a SQLModel ORM database layer.
 
 **Live app:** [https://ai-powered-chat.netlify.app/](https://ai-powered-chat.netlify.app/)
 
@@ -12,23 +12,29 @@ A publicly deployed AI chatbot with a browser-based interface, powered by Meta's
 
 ## Tools and Technologies Used
 
-### Deployed Version (Public)
+### Deployed Version (Netlify)
 
 - JavaScript (ES6+) — frontend
-- Node.js — Netlify serverless function (backend)
-- Groq API — LLM inference in the cloud
-- Llama 3.3 70B (`llama-3.3-70b-versatile`)
-- Netlify — hosting and serverless functions
+- Python 3.11 — all serverless functions
+- FastAPI — request/response handling and Pydantic data serialisation
+- Mangum — ASGI adapter bridging FastAPI to Netlify / AWS Lambda events
+- Pydantic — request and response model validation
+- SQLModel — ORM layer for database operations (built on SQLAlchemy + Pydantic)
+- Groq API — LLM inference (Llama 3.3 70B)
+- HuggingFace Inference API — sentence embeddings (`all-MiniLM-L6-v2`)
+- PostgreSQL (Neon / Supabase) — persistent storage of PDF chunks and embeddings
+- pypdf — PDF text extraction
+- NumPy — cosine similarity ranking
+- Netlify — hosting and serverless function runtime
 
 ### Local Development Version
 
 - Python 3.10+
-- Flask
-- Flask-CORS
-- Requests
-- Ollama (local LLM runtime)
-- Llama 3.2 model (`llama3.2:latest`)
-- Docker (optional containerised setup)
+- FastAPI + Uvicorn — local ASGI server
+- python-dotenv — `.env` file loading
+- sentence-transformers — local embedding model (no HuggingFace API calls)
+- SQLite — zero-config local database (no PostgreSQL setup required)
+- SQLModel — same ORM used in production, works with SQLite out of the box
 
 ### General
 
@@ -39,41 +45,74 @@ A publicly deployed AI chatbot with a browser-based interface, powered by Meta's
 ## Key Features
 
 - Publicly accessible browser-based chatbot interface
-- Serverless backend — no server to maintain, scales automatically
+- **PDF RAG pipeline** — upload a PDF, ask questions about it; answers are grounded in the document's content
+- Fully Python serverless backend — all three functions (chat, upload, RAG query) are FastAPI apps
+- Pydantic models enforce a strict serialisation contract between frontend and backend
+- SQLModel ORM manages all database reads and writes; no raw SQL except for similarity ranking
+- Embeddings stored as JSON text — compatible with both SQLite (local) and PostgreSQL (deployed), no pgvector extension required
+- Cosine similarity ranking done in Python with NumPy
 - Multi-turn conversation memory (last 10 exchanges sent with each request)
-- API key secured server-side, never exposed to the browser
-- Local development mode using Flask + Ollama for offline use
-- CORS enabled for frontend/backend communication
+- API keys secured server-side, never exposed to the browser
+- Environment-aware frontend — automatically routes to local FastAPI server or Netlify functions based on hostname
 
 ## How It Works
 
-The app has two completely separate backend implementations that serve the same purpose — receiving a message, generating an AI reply, and returning it to the browser. Which one runs depends on how you use the app.
+### Regular Chat
 
-| | Deployed (Public) | Local Development |
+`script.js` detects whether the page is served from `localhost` and picks the correct API base path. It sends the user's message and conversation history as a POST request to the chatbot backend, which calls the Groq API and returns the AI reply.
+
+### PDF RAG Pipeline
+
+| Step | What happens |
+|---|---|
+| **1. Upload** | Browser reads the PDF as base64 and POSTs it to `upload_pdf` |
+| **2. Extract** | `pypdf` extracts all page text server-side |
+| **3. Chunk** | Text is split into 500-character overlapping windows |
+| **4. Embed** | Each chunk is embedded by `sentence-transformers/all-MiniLM-L6-v2` |
+| **5. Store** | Chunks and embeddings are persisted to the database via the SQLModel ORM |
+| **6. ID returned** | The browser stores only a short UUID — no embeddings ever reach the client |
+| **7. Query** | User types a question; browser POSTs `{ prompt, pdf_id }` to `rag_query` |
+| **8. Retrieve** | The query is embedded; all stored chunks for that PDF are loaded via ORM and ranked by NumPy cosine similarity |
+| **9. Answer** | The top 3 chunks are injected as context into a Groq LLM prompt and the answer is returned |
+
+### Backend comparison
+
+| | Deployed (Netlify) | Local Development |
 |---|---|---|
-| **Backend file** | `netlify/functions/chatbot.js` | `app.py` |
-| **Runs on** | Netlify's servers | Your machine |
-| **AI model** | Llama 3.3 70B via Groq API | Llama 3.2 via Ollama |
-| **API key required** | Yes (stored in Netlify env vars) | No |
-
-In both cases, `script.js` in the browser sends the user's message and conversation history as a POST request to the backend. The backend calls the AI, gets a reply, and returns it to `script.js` to display on screen.
+| **Chat backend** | `netlify/functions/chatbot.py` | `main.py` → same handler |
+| **Upload backend** | `netlify/functions/upload_pdf.py` | `main.py` → same handler |
+| **RAG backend** | `netlify/functions/rag_query.py` | `main.py` → same handler |
+| **Framework** | FastAPI + Mangum | FastAPI + Uvicorn |
+| **Embeddings** | HuggingFace Inference API | sentence-transformers (local) |
+| **Database** | PostgreSQL (Neon / Supabase) | SQLite (`local_vectors.db`) |
+| **LLM** | Groq API (Llama 3.3 70B) | Groq API (same) |
 
 ## Deploying to Netlify (Public)
 
 ### Prerequisites
 
-- A [Groq API key](https://console.groq.com) (free account, no credit card)
+- A [Groq API key](https://console.groq.com) (free account)
+- A free PostgreSQL database — [neon.tech](https://neon.tech) or [supabase.com](https://supabase.com)
+- A free [HuggingFace token](https://huggingface.co/settings/tokens) (read access)
 - The project pushed to a GitHub repository
 
 ### 1. Get a Groq API Key
 
-- Go to [console.groq.com](https://console.groq.com) and sign up or log in
-- Navigate to **API Keys** → **Create API Key**
-- Copy the key — you will need it in step 4
+- Go to [console.groq.com](https://console.groq.com) → **API Keys** → **Create API Key**
+- Copy the key
 
-### 2. Push the Project to GitHub
+### 2. Create a PostgreSQL Database
 
-If not already on GitHub, initialise a repo and push:
+- Sign up at [neon.tech](https://neon.tech) (free tier, no credit card)
+- Create a new project and copy the connection string — it looks like:
+  `postgresql://user:password@ep-xyz.us-east-2.aws.neon.tech/dbname`
+
+### 3. Get a HuggingFace Token
+
+- Go to [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) → **New token** → read access
+- Copy the token
+
+### 4. Push the Project to GitHub
 
 ```bash
 git init
@@ -83,57 +122,40 @@ git remote add origin <your-github-repo-url>
 git push -u origin main
 ```
 
-### 3. Connect the Repo to Netlify
+### 5. Connect the Repo to Netlify
 
 - Go to [app.netlify.com](https://app.netlify.com)
 - Click **Add new site** → **Import an existing project** → **GitHub**
-- Authorise Netlify and select your repository
-- Leave **Base directory** blank (the `netlify.toml` handles configuration automatically)
-- Leave **Build command** blank
+- Select your repository
+- Leave **Build command** blank — `netlify.toml` handles configuration
 - Set **Publish directory** to `.`
 - Click **Deploy site**
 
-### 4. Add the Groq API Key as an Environment Variable
+### 6. Add Environment Variables
 
-- In Netlify, go to **Site configuration** → **Environment variables**
-- Click **Add a variable**
-- Set **Key** to `GROQ_API_KEY` and **Value** to your key from step 1
-- Click **Save**
-- Go to **Deploys** → **Trigger deploy** → **Deploy site** to apply the new variable
+In Netlify: **Site configuration** → **Environment variables** → **Add a variable**
 
-### 5. Open the Live App
+| Key | Value |
+|---|---|
+| `GROQ_API_KEY` | Your Groq API key |
+| `DATABASE_URL` | Your PostgreSQL connection string |
+| `HUGGINGFACE_API_KEY` | Your HuggingFace token |
 
-- Your site will be live at the URL shown on the Netlify dashboard (e.g. `https://your-site-name.netlify.app`)
-- Open it in any browser and start chatting
+Trigger a new deploy after saving: **Deploys** → **Trigger deploy** → **Deploy site**
+
+### 7. Open the Live App
+
+Your site will be live at the URL shown on the Netlify dashboard. Open it in any browser and start chatting.
 
 ---
 
-## Running Locally (Flask + Ollama)
+## Running Locally
 
 ### Prerequisites
-
-Install the following before running the project:
 
 - Git
 - Python 3.10+
 - pip
-- Ollama
-
-Optional:
-
-- Docker Desktop
-
-Verify versions:
-
-```bash
-git --version
-python --version
-pip --version
-ollama --version
-docker --version
-```
-
-## Step-by-Step Setup and Usage
 
 ### 1. Clone the Repository
 
@@ -164,119 +186,157 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 4. Start Ollama Service
+> `sentence-transformers` pulls in PyTorch (~800 MB on first install). This is a one-time download.
 
-In a separate terminal, run:
-
-```bash
-ollama serve
-```
-
-### 5. Pull the Required LLM Model
-
-If the model is not already available:
+### 4. Create a `.env` File
 
 ```bash
-ollama pull llama3.2:latest
+cp .env.example .env
 ```
 
-### 6. Run the Flask Application
+Open `.env` and set at minimum:
+
+```
+GROQ_API_KEY=gsk_your_key_here
+DATABASE_URL=sqlite:///./local_vectors.db
+```
+
+`HUGGINGFACE_API_KEY` is not needed locally — embeddings run through `sentence-transformers` without any API call.
+
+### 5. Start the Server
 
 ```bash
-python app.py
+uvicorn main:app --reload
 ```
 
-The app runs at:
+The app runs at `http://localhost:8000`.
 
-- `http://127.0.0.1:5000`
+On first startup you will see:
 
-### 7. Use the Chatbot
-
-- Open the app URL in your browser
-- Type a message in the input box
-- Submit and wait for the model response
-
-## Optional Docker Setup
-
-### 1. Build Docker Image
-
-```bash
-docker build -t llm-application-chatbot .
+```
+✓ Embeddings: local sentence-transformers model (all-MiniLM-L6-v2)
 ```
 
-### 2. Run Docker Container
+The model (~90 MB) is downloaded once and cached locally. Subsequent runs are instant.
 
-```bash
-docker run -p 5000:5000 llm-application-chatbot
-```
+### 6. Use the Chatbot
 
-Note: The containerized app still needs access to a running Ollama service. Ensure Ollama is available from the container network.
+- Open `http://localhost:8000` in your browser
+- **Regular chat** — type a message and submit
+- **RAG chat** — click **Upload PDF for RAG**, select a PDF (≤ 4 MB), wait for the chunks to be indexed, then ask questions about the document
 
-## API Endpoint (Local Flask Version)
+## API Endpoints
 
-- `POST /chatbot`
-	- Request body:
+All three endpoints accept and return JSON. Pydantic models enforce the contract.
+
+### `POST /chatbot`
+
+Request:
 
 ```json
 {
-	"prompt": "Your message here"
+  "prompt": "Your message here",
+  "history": [
+    { "role": "user", "content": "Previous message" },
+    { "role": "assistant", "content": "Previous reply" }
+  ]
 }
 ```
 
-	- Response body:
+Response:
+
+```json
+{ "response": "Model output text" }
+```
+
+### `POST /upload_pdf`
+
+Request:
 
 ```json
 {
-	"response": "Model output text"
+  "filename": "document.pdf",
+  "file_data": "<base64-encoded PDF bytes>"
 }
+```
+
+Response:
+
+```json
+{ "pdf_id": "550e8400-e29b-41d4-a716-446655440000", "count": 142 }
+```
+
+### `POST /rag_query`
+
+Request:
+
+```json
+{
+  "prompt": "What does the document say about X?",
+  "pdf_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+Response:
+
+```json
+{ "response": "According to the document, X means..." }
 ```
 
 ## Troubleshooting
 
 ### Deployed Version (Netlify)
 
-- **Chatbot returns no response or an error message**
-	- Confirm `GROQ_API_KEY` is set correctly in Netlify → Site configuration → Environment variables
-	- After adding or changing the key, trigger a new deploy: Deploys → Trigger deploy → Deploy site
-- **Function not found (404 on `/.netlify/functions/chatbot`)**
-	- Confirm `netlify.toml` is present in the repo root with `functions = "netlify/functions"`
-	- Confirm `netlify/functions/chatbot.js` exists in the repository
+- **Chatbot returns a 401 error**
+  - Confirm `GROQ_API_KEY` is set correctly in Netlify → Environment variables
+  - After changing the key, trigger a new deploy
+- **PDF upload returns a 502 error**
+  - Confirm `HUGGINGFACE_API_KEY` is set — without it, the free-tier inference API is heavily rate-limited
+  - Confirm `DATABASE_URL` is set to a valid PostgreSQL connection string
+- **Function not found (404)**
+  - Confirm `netlify.toml` has `functions = "netlify/functions"`
+  - Confirm `netlify/functions/requirements.txt` exists
 - **Site loads but sends no messages**
-	- Open browser DevTools (F12) → Console tab and check for error messages
+  - Open browser DevTools (F12) → Console for error details
 
-### Local Version (Flask + Ollama)
+### Local Version (Uvicorn)
 
-- **Error: Cannot connect to Ollama**
-	- Confirm `ollama serve` is running in a separate terminal
-	- Confirm Ollama is listening on `http://localhost:11434`
-- **Model not found**
-	- Run `ollama pull llama3.2:latest`
-- **Flask server does not start**
-	- Ensure the virtual environment is activated
-	- Reinstall dependencies with `pip install -r requirements.txt`
-- **Port already in use**
-	- Stop the conflicting process or change the port in `app.py`
+- **`GROQ_API_KEY` 401 error**
+  - Check `.env` has a valid key and restart the server (`--reload` does not pick up `.env` changes automatically — stop and rerun `uvicorn main:app --reload`)
+- **PDF upload DNS error (HuggingFace unreachable)**
+  - Ensure `sentence-transformers` is installed — local dev should never call the HuggingFace API
+  - If missing: `pip install sentence-transformers`
+- **Database error on PDF upload or query**
+  - Confirm `.env` has `DATABASE_URL=sqlite:///./local_vectors.db`
+  - Delete `local_vectors.db` if the schema is stale, then restart
+- **Server does not start**
+  - Ensure the virtual environment is activated
+  - Run `pip install -r requirements.txt` again
 
 ## Project Structure
 
 ```text
 LLM_application_chatbot/
-	index.html
-	netlify.toml
-	app.py
-	requirements.txt
-	Dockerfile
-	netlify/
-		functions/
-			chatbot.js
-	static/
-		script.js
-		css/
-			style.css
-	templates/
-		index.html
+├── index.html              # Static frontend served by Netlify / Uvicorn
+├── main.py                 # Local FastAPI dev server (mounts all function handlers)
+├── netlify.toml            # Netlify build config (Python 3.11, functions dir)
+├── requirements.txt        # Local dev dependencies
+├── .env.example            # Template for environment variables
+├── Dockerfile              # Optional containerised setup
+├── netlify/
+│   └── functions/
+│       ├── chatbot.py      # Serverless function — standard chat via Groq
+│       ├── upload_pdf.py   # Serverless function — PDF ingest + embedding
+│       ├── rag_query.py    # Serverless function — semantic search + RAG answer
+│       ├── db.py           # Shared SQLModel schema and engine factory
+│       └── requirements.txt  # Serverless function dependencies
+└── static/
+    ├── script.js           # Frontend logic (environment-aware API routing)
+    └── css/
+        └── style.css
 ```
 
 ## Summary
 
-Built a publicly deployed AI chatbot with a browser-based UI powered by Meta's Llama 3.3 70B via the Groq API. The backend runs as a Netlify serverless function, keeping the API key secure and the app free to host. Originally developed locally using Flask, Python, and Ollama, then migrated to a serverless architecture for public deployment.
+Built a publicly deployed AI chatbot with full PDF-based Retrieval-Augmented Generation (RAG). The backend is entirely Python, using FastAPI for request serialisation via Pydantic models, SQLModel as the ORM for all database operations, and Mangum to adapt the ASGI apps to Netlify's serverless function format. Uploaded PDFs are chunked, embedded with `sentence-transformers/all-MiniLM-L6-v2`, and stored in a database; queries retrieve the most relevant chunks by cosine similarity before passing them as context to the Llama 3.3 70B model via Groq. Local development uses SQLite and runs embeddings in-process — no external database or API keys required beyond Groq.
+
