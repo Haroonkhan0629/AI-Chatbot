@@ -22,7 +22,6 @@ import math
 import os
 import uuid
 
-import requests
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -84,7 +83,6 @@ class ErrorResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 HF_MODEL      = "sentence-transformers/all-MiniLM-L6-v2"
-HF_API_URL    = f"https://api-inference.huggingface.co/pipeline/feature-extraction/{HF_MODEL}"
 CHUNK_SIZE    = 500
 CHUNK_OVERLAP = 50
 MAX_PDF_BYTES = 4 * 1024 * 1024   # 4 MB — safely within Netlify's 6 MB body limit
@@ -107,29 +105,17 @@ def split_into_chunks(text: str) -> list[str]:
 
 def embed_batch(texts: list[str], api_key: str) -> list[list[float]]:
     """
-    Call HuggingFace feature-extraction pipeline for a batch of texts.
-    Mean-pools token embeddings to produce one sentence vector per text.
+    Embed a batch of texts via the HuggingFace Inference Providers API.
+    Uses huggingface_hub.InferenceClient which routes through the new
+    router.huggingface.co infrastructure (not the deprecated api-inference host).
     """
-    headers = {"Content-Type": "application/json"}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-
-    resp = requests.post(
-        HF_API_URL,
-        headers=headers,
-        json={"inputs": texts, "options": {"wait_for_model": True}},
-        timeout=45,
-    )
-    resp.raise_for_status()
-    raw = resp.json()
-
-    embeddings: list[list[float]] = []
-    for vec in raw:
-        if vec and isinstance(vec[0], list):  # token-level → mean pool to sentence vector
-            n = len(vec)
-            vec = [sum(row[i] for row in vec) / n for i in range(len(vec[0]))]
-        embeddings.append([float(x) for x in vec])
-    return embeddings
+    from huggingface_hub import InferenceClient
+    client = InferenceClient(provider="hf-inference", token=api_key)
+    result = client.feature_extraction(texts, model=HF_MODEL)
+    # InferenceClient returns an ndarray of shape (n_texts, dim) for sentence-transformers
+    if hasattr(result, "tolist"):
+        return result.tolist()
+    return [[float(x) for x in emb] for emb in result]
 
 
 # ---------------------------------------------------------------------------
