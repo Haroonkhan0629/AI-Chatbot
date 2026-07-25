@@ -10,7 +10,7 @@ const _isLocal = window.location.hostname === 'localhost' || window.location.hos
 const apiUrl = path => _isLocal ? path : `/.netlify/functions${path}`;
 
 // RAG state — UUID returned by upload_pdf and stored server-side in PostgreSQL
-let currentPdfId = null;
+let currentPdfText = null;
 
 // Get references to main UI elements
 const messagesContainer = document.getElementById('messages-container');
@@ -62,10 +62,9 @@ pdfInput.addEventListener('change', async () => {
   pdfStatus.textContent = '⏳ Extracting text from PDF…';
   pdfStatus.className = 'pdf-status loading';
   clearPdfBtn.style.display = 'none';
-  currentPdfData = null;
+  currentPdfText = null;
 
   try {
-    // --- Step 1: extract text in the browser (no server-side PDF library) ---
     const text = await extractPdfText(file);
     if (!text.trim()) {
       pdfStatus.textContent = '❌ No text found. Is this a scanned / image-only PDF?';
@@ -73,33 +72,14 @@ pdfInput.addEventListener('change', async () => {
       pdfInput.value = '';
       return;
     }
-
-    pdfStatus.textContent = '⏳ Indexing…';
-
-    // --- Step 2: send extracted text to the Netlify function ----------------
-    const resp = await fetch(apiUrl('/upload_pdf'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename: file.name, text }),
-    });
-
-    let data = {};
-    try { data = await resp.json(); } catch (_) { /* non-JSON response */ }
-
-    if (!resp.ok || data.error || !data.pdf_id) {
-      const errMsg = data.error || `Upload failed (HTTP ${resp.status}).`;
-      pdfStatus.textContent = `❌ ${errMsg}`;
-      pdfStatus.className = 'pdf-status error';
-    } else {
-      currentPdfId = data.pdf_id;
-      pdfStatus.textContent = `✅ ${file.name} — ${data.count} chunks indexed`;
-      pdfStatus.className = 'pdf-status success';
-      clearPdfBtn.style.display = 'inline-block';
-    }
+    currentPdfText = text;
+    pdfStatus.textContent = `✅ ${file.name} — ready`;
+    pdfStatus.className = 'pdf-status success';
+    clearPdfBtn.style.display = 'inline-block';
   } catch (err) {
-    console.error('PDF upload error:', err);
-    const msg = (err instanceof Error) ? err.message : String(err?.type || err || 'Upload failed.');
-    pdfStatus.textContent = `❌ ${msg || 'Upload failed.'}`;
+    console.error('PDF extract error:', err);
+    const msg = (err instanceof Error) ? err.message : 'Failed to read PDF.';
+    pdfStatus.textContent = `❌ ${msg}`;
     pdfStatus.className = 'pdf-status error';
   }
 
@@ -108,7 +88,7 @@ pdfInput.addEventListener('change', async () => {
 });
 
 clearPdfBtn.addEventListener('click', () => {
-  currentPdfId = null;
+  currentPdfText = null;
   pdfStatus.textContent = '';
   pdfStatus.className = 'pdf-status';
   clearPdfBtn.style.display = 'none';
@@ -125,7 +105,7 @@ async function makeRAGRequest(message) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       // Only the prompt and UUID are sent — all embeddings are retrieved from the DB
-      body: JSON.stringify({ prompt: message, pdf_id: currentPdfId }),
+      body: JSON.stringify({ prompt: message, pdfText: currentPdfText }),
     });
     return await resp.json();
   } catch (err) {
@@ -191,14 +171,14 @@ const sendMessage = async (message) => {
   const loadingtextElement = document.createElement('p');
   loadingElement.className = 'loading-animation';
   loadingtextElement.className = 'loading-text';
-  loadingtextElement.innerText = currentPdfId
+  loadingtextElement.innerText = currentPdfText
     ? 'Searching PDF context… please wait'
     : 'Loading....Please wait';
   messagesContainer.appendChild(loadingElement);
   messagesContainer.appendChild(loadingtextElement);
 
   // If a PDF is loaded use RAG, otherwise use the standard chatbot endpoint
-  const data = currentPdfId
+  const data = currentPdfText
     ? await makeRAGRequest(message)
     : await makePostRequest(message);
 
@@ -214,7 +194,7 @@ const sendMessage = async (message) => {
   }
 
   // Persist to conversation history (standard path only — RAG is stateless per query)
-  if (!data.error && !currentPdfId) {
+  if (!data.error && !currentPdfText) {
     conversationHistory.push({ role: 'user', content: message });
     conversationHistory.push({ role: 'assistant', content: data['response'] });
     if (conversationHistory.length > 20) conversationHistory.splice(0, 2);
