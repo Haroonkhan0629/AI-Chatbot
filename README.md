@@ -150,9 +150,9 @@ cp .env.example .env
 Open `.env` and set:
 
 ```
-GROQ_API_KEY=gsk_your_key_here
-DATABASE_URL=postgresql://user:password@host/dbname
-HUGGINGFACE_API_KEY=hf_your_token_here
+GROQ_API_KEY=your_groq_api_key_here
+DATABASE_URL=your_postgresql_connection_string_here
+HUGGINGFACE_API_KEY=your_huggingface_token_here
 ```
 
 ### 3. Start the Local Dev Server
