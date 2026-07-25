@@ -1,0 +1,31 @@
+name: Deploy to Netlify
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Python must be available so the Netlify CLI can install
+      # requirements.txt and bundle the Python functions.
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Netlify CLI
+        run: npm install -g netlify-cli
+
+      # netlify deploy --prod reads netlify.toml, installs
+      # netlify/functions/requirements.txt, bundles each Python
+      # function with its dependencies, then deploys.
+      - name: Deploy to Netlify
+        run: netlify deploy --prod
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: 8ee6f2d8-fff5-482e-9505-d16ce6ba304f
