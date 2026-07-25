@@ -2,6 +2,3 @@
   command = "echo 'Netlify build'"
   publish = "."
   functions = "netlify/functions"
-
-[functions]
-  timeout = 26
