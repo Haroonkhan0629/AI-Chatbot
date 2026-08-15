@@ -12,7 +12,7 @@
 'use strict';
 
 const GROQ_API_URL   = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_MODEL     = 'moonshotai/kimi-k2-instruct';
+const GROQ_MODEL     = 'deepseek-r1-distill-llama-70b';
 const MAX_TEXT_CHARS = 80000; // ~60K tokens, well within Groq 128K context limit
 
 const CORS = {

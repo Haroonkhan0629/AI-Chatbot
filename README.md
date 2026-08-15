@@ -1,6 +1,6 @@
 ﻿# LLM Application Chatbot
 
-A publicly deployed AI chatbot powered by Moonshot AI's Kimi K2 via the Groq API, hosted on Netlify. Supports standard multi-turn conversation as well as **Retrieval-Augmented Generation (RAG)** — upload a PDF and the chatbot answers questions grounded in its content.
+A publicly deployed AI chatbot powered by DeepSeek R1 (70B) via the Groq API, hosted on Netlify. Supports standard multi-turn conversation as well as **Retrieval-Augmented Generation (RAG)** — upload a PDF and the chatbot answers questions grounded in its content.
 
 **Live app:** [https://ai-powered-chat.netlify.app/](https://ai-powered-chat.netlify.app/)
 
@@ -11,7 +11,7 @@ A publicly deployed AI chatbot powered by Moonshot AI's Kimi K2 via the Groq API
 ## Tools and Technologies Used
 
 - **Node.js 18** -- serverless functions (Netlify Functions)
-- **Groq API** -- LLM inference (Kimi K2)
+- **Groq API** -- LLM inference (DeepSeek R1 70B)
 - **PDF.js** (v3.11, bundled locally) -- client-side PDF text extraction; runs entirely in the browser, no server dependency
 - **Netlify** -- hosting, serverless function runtime, and continuous deployment
 - **HTML5 / CSS3 / JavaScript (ES6+)** -- frontend
