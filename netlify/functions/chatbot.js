@@ -4,7 +4,7 @@
  */
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_MODEL   = 'llama-3.3-70b-versatile';
+const GROQ_MODEL   = 'moonshotai/kimi-k2-instruct';
 
 const CORS = {
   'Content-Type': 'application/json',
