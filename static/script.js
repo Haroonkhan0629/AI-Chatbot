@@ -146,7 +146,7 @@ async function makePostRequest(msg) {
 // Converts **bold** and ## headings to HTML; everything else stays plain text.
 function renderMarkdown(text) {
   return text
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/^[\|\s\-]+$/gm, '')                                        // strip table separator rows
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/^#{1,3} ?(.+)$/gm, '<span class="md-heading">$1</span>')
     .replace(/\n/g, '<br>');
