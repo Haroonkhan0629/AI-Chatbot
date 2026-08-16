@@ -143,15 +143,24 @@ async function makePostRequest(msg) {
 // Display a message bubble in the chat window
 // ---------------------------------------------------------------------------
 
+// Converts **bold** and ## headings to HTML; everything else stays plain text.
+function renderMarkdown(text) {
+  return text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/^#{1,3} ?(.+)$/gm, '<span class="md-heading">$1</span>')
+    .replace(/\n/g, '<br>');
+}
+
 const addMessage = (message, role, imgSrc) => {
   const messageElement = document.createElement('div');
-  const textElement = document.createElement('div');
+  const textElement = document.createElement('p');
   messageElement.className = `message ${role}`;
   const imgElement = document.createElement('img');
   imgElement.src = imgSrc;
   messageElement.appendChild(imgElement);
   if (role === 'aibot') {
-    textElement.innerHTML = marked.parse(message);
+    textElement.innerHTML = renderMarkdown(message);
   } else {
     textElement.innerText = message;
   }
