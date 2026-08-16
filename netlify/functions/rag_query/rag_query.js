@@ -12,7 +12,7 @@
 'use strict';
 
 const GROQ_API_URL   = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_MODEL     = 'meta-llama/llama-4-scout-17b-16e-instruct';
+const GROQ_MODEL     = 'openai/gpt-oss-120b';
 const MAX_TEXT_CHARS = 80000; // ~60K tokens, well within Groq 128K context limit
 
 const CORS = {
