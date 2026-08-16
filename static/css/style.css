@@ -278,7 +278,7 @@ option:hover {
   padding: 10px;
 }
 
-.message p {
+.message p, .message div {
   margin-bottom: 10px;
   padding: 10px;
   border-radius: 5px;
@@ -324,7 +324,7 @@ option:hover {
   animation: fade-in-bottom 0.5s forwards;
 }
 
-.user p {
+.user p, .user div {
   max-width: 70%;
   background-color: #f5f2fd;
   color: #272727;
@@ -339,7 +339,7 @@ option:hover {
   align-self: flex-end;
 }
 
-.aibot p {
+.aibot p, .aibot div {
   max-width: 70%;
   background-color: #ffffff;
   color: #272727;
@@ -353,7 +353,7 @@ option:hover {
 }
 
 
-.error p {
+.error p, .error div {
   max-width: 70%;
   background-color: #ff9393;
   color: #272727;
@@ -369,6 +369,17 @@ option:hover {
 .clear {
   clear: both;
 }
+
+/* Markdown content inside bot bubbles */
+.aibot div p { margin: 0 0 6px; }
+.aibot div p:last-child { margin-bottom: 0; }
+.aibot div h1, .aibot div h2, .aibot div h3,
+.aibot div h4, .aibot div h5, .aibot div h6 { margin: 8px 0 4px; font-weight: 600; }
+.aibot div ul, .aibot div ol { margin: 4px 0 4px 18px; }
+.aibot div li { margin-bottom: 2px; }
+.aibot div code { background: #f0f0f0; padding: 2px 5px; border-radius: 3px; font-size: 0.88em; font-family: monospace; }
+.aibot div pre { background: #f0f0f0; padding: 10px; border-radius: 5px; overflow-x: auto; margin: 6px 0; }
+.aibot div pre code { background: none; padding: 0; }
 
 .loading-animation {
   float: left; /* float the image to the left */

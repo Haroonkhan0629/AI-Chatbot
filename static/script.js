@@ -145,12 +145,16 @@ async function makePostRequest(msg) {
 
 const addMessage = (message, role, imgSrc) => {
   const messageElement = document.createElement('div');
-  const textElement = document.createElement('p');
+  const textElement = document.createElement('div');
   messageElement.className = `message ${role}`;
   const imgElement = document.createElement('img');
   imgElement.src = imgSrc;
   messageElement.appendChild(imgElement);
-  textElement.innerText = message;
+  if (role === 'aibot') {
+    textElement.innerHTML = marked.parse(message);
+  } else {
+    textElement.innerText = message;
+  }
   messageElement.appendChild(textElement);
   messagesContainer.appendChild(messageElement);
   const clearDiv = document.createElement('div');
