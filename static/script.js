@@ -171,6 +171,7 @@ const addMessage = (message, role, imgSrc) => {
   const clearDiv = document.createElement('div');
   clearDiv.style.clear = 'both';
   messagesContainer.appendChild(clearDiv);
+  messagesContainer.scrollTop = messagesContainer.scrollHeight;
 };
 
 
@@ -191,6 +192,7 @@ const sendMessage = async (message) => {
     : 'Loading....Please wait';
   messagesContainer.appendChild(loadingElement);
   messagesContainer.appendChild(loadingtextElement);
+  messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
   // If a PDF is loaded use RAG, otherwise use the standard chatbot endpoint
   const data = currentPdfText
