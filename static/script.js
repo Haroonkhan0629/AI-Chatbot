@@ -171,7 +171,6 @@ const addMessage = (message, role, imgSrc) => {
   const clearDiv = document.createElement('div');
   clearDiv.style.clear = 'both';
   messagesContainer.appendChild(clearDiv);
-  messagesContainer.scrollTop = messagesContainer.scrollHeight;
 };
 
 
@@ -181,6 +180,7 @@ const addMessage = (message, role, imgSrc) => {
 
 const sendMessage = async (message) => {
   addMessage(message, 'user', '../static/user.jpeg');
+  messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
   // Loading animation
   const loadingElement = document.createElement('div');
