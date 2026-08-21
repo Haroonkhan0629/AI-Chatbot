@@ -180,7 +180,6 @@ const addMessage = (message, role, imgSrc) => {
 
 const sendMessage = async (message) => {
   addMessage(message, 'user', '../static/user.jpeg');
-  messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
   // Loading animation
   const loadingElement = document.createElement('div');
