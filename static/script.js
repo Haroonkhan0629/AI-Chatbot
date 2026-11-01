@@ -129,6 +129,14 @@ pdfInput.addEventListener('change', async () => {
 });
 
 clearPdfBtn.addEventListener('click', () => {
+  if (currentDocId) {
+    // Fire and forget: remove this document's chunks from Chroma
+    fetch(apiUrl('/rag_delete'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ docId: currentDocId }),
+    }).catch(() => {});
+  }
   currentPdfText = null;
   currentDocId = null;
   pdfStatus.textContent = '';

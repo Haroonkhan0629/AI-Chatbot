@@ -5,6 +5,7 @@
  *   indexDocument(docId, text)      -> chunk + embed + store a PDF      (rag_ingest-background)
  *   getIndexStatus(docId)           -> 'processing' | 'ready' | 'error'  (rag_status)
  *   findRelevantChunks(docId, q, k) -> top-k chunk texts for a question  (rag_query)
+ *   deleteDocument(docId)           -> remove a document's chunks        (rag_delete)
  *
  * Helpers used by those three: embed(), getCollection(), semanticChunks().
  * This folder has no index.js, so Netlify does not deploy it as a function.
@@ -184,4 +185,10 @@ async function findRelevantChunks(docId, question, k) {
     .slice(0, k);
 }
 
-module.exports = { indexDocument, getIndexStatus, findRelevantChunks };
+/** Delete every chunk (and the marker row) belonging to a document. */
+async function deleteDocument(docId) {
+  const collection = await getCollection();
+  await collection.delete({ where: { docId } });
+}
+
+module.exports = { indexDocument, getIndexStatus, findRelevantChunks, deleteDocument };

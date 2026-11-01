@@ -57,7 +57,7 @@ A publicly deployed AI chatbot powered by OpenAI GPT-OSS 120B via the Groq API, 
 | **3. Inject** | The chunks are placed in the Groq prompt after the few-shot Chain-of-Thought system instructions |
 | **4. Answer** | Groq reasons step by step; the function returns only the text after `Answer:` |
 
-Notes: all users share one Chroma collection and are separated only by `docId`. Render's free tier sleeps after 15 minutes and has no persistent disk, so stored documents are lost on restart, which suits a quick upload-and-chat app. The Clear button resets the browser state only; it does not delete chunks from Chroma.
+Notes: all users share one Chroma collection and are separated only by `docId`. Render's free tier sleeps after 15 minutes and has no persistent disk, so stored documents are lost on restart, which suits a quick upload-and-chat app. The Clear button calls `rag_delete`, which removes that document's chunks from Chroma.
 
 ### Serverless Functions
 
@@ -66,6 +66,7 @@ Notes: all users share one Chroma collection and are separated only by `docId`. 
 | `netlify/functions/chatbot.js` | `/.netlify/functions/chatbot` | Multi-turn chat via Groq |
 | `netlify/functions/rag_ingest-background.js` | `/.netlify/functions/rag_ingest-background` | Background function: chunk, embed, store a PDF |
 | `netlify/functions/rag_status.js` | `/.netlify/functions/rag_status` | Reports `processing`, `ready` or `error` for a `docId` |
+| `netlify/functions/rag_delete.js` | `/.netlify/functions/rag_delete` | Deletes a document's chunks from Chroma (Clear button) |
 | `netlify/functions/rag_query/rag_query.js` | `/.netlify/functions/rag_query` | Embeds the question, retrieves chunks, calls Groq |
 | `netlify/functions/chroma_warmup.js` | `/.netlify/functions/chroma_warmup` | Pings Chroma to wake it from sleep |
 | `netlify/functions/rag_shared/rag.js` | (not a route) | Shared RAG functions: `embed`, `semanticChunks`, `indexDocument`, `getIndexStatus`, `findRelevantChunks` |
@@ -176,6 +177,12 @@ The app runs at `http://localhost:8888`.
 
 ```json
 { "status": "processing" }  // or "ready", or { "status": "error", "error": "..." }
+```
+
+### `POST /.netlify/functions/rag_delete`
+
+```json
+{ "docId": "uuid" }  // -> { "deleted": true }
 ```
 
 ### `POST /.netlify/functions/rag_query`
