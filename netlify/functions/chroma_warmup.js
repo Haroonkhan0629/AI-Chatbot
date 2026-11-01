@@ -17,10 +17,11 @@ exports.handler = async function () {
   if (!process.env.CHROMA_URL) return { statusCode: 200, headers: CORS, body: JSON.stringify({ status: 'not-needed' }) };
 
   try {
-    await fetch(process.env.CHROMA_URL.replace(/\/$/, '') + '/api/v2/heartbeat', {
+    const resp = await fetch(process.env.CHROMA_URL.replace(/\/$/, '') + '/api/v2/heartbeat', {
       signal: AbortSignal.timeout(8000),
     });
-    return { statusCode: 200, headers: CORS, body: JSON.stringify({ status: 'awake' }) };
+    // Render answers 502/503 while the container is still starting, so only a 200 counts as awake.
+    return { statusCode: 200, headers: CORS, body: JSON.stringify({ status: resp.ok ? 'awake' : 'waking' }) };
   } catch (err) {
     return { statusCode: 200, headers: CORS, body: JSON.stringify({ status: 'waking' }) };
   }

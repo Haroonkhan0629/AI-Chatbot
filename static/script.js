@@ -19,6 +19,18 @@ setInterval(warmChroma, 10 * 60 * 1000);
 let currentPdfText = null; // truthy once the document is indexed
 let currentDocId = null;   // ChromaDB document id used for retrieval
 
+/** Resolve once the Chroma server answers its heartbeat (Render free tier can take ~1 min to wake). */
+async function waitForChroma() {
+  for (let i = 0; i < 40; i++) { // each ping waits up to ~8 s server-side; ~5 min max
+    try {
+      const s = await (await fetch(apiUrl('/chroma_warmup'))).json();
+      if (s.status === 'awake' || s.status === 'not-needed') return;
+    } catch (err) { /* function not reachable yet, keep trying */ }
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  throw new Error('Database did not wake up. Please try again in a minute.');
+}
+
 /** Send text to the background ingest function, then poll until it is searchable. */
 async function ingestDocument(text) {
   const docId = crypto.randomUUID();
@@ -32,7 +44,7 @@ async function ingestDocument(text) {
     await new Promise(r => setTimeout(r, 2000));
     const s = await (await fetch(apiUrl('/rag_status') + '?docId=' + docId)).json();
     if (s.status === 'ready') return docId;
-    if (s.status === 'error' || s.error) throw new Error('Document indexing failed.');
+    if (s.status === 'error' || s.error) throw new Error('Document indexing failed: ' + (s.error || 'unknown error'));
   }
   throw new Error('Document indexing timed out.');
 }
@@ -84,12 +96,14 @@ pdfInput.addEventListener('change', async () => {
   const file = pdfInput.files[0];
   if (!file) return;
 
-  pdfStatus.textContent = '⏳ Extracting text from PDF…';
+  pdfStatus.textContent = '⏳ Uploading… (waking up the database, this can take a minute)';
   pdfStatus.className = 'pdf-status loading';
   clearPdfBtn.style.display = 'none';
   currentPdfText = null;
 
   try {
+    await waitForChroma(); // don't parse or index until the database is reachable
+    pdfStatus.textContent = '⏳ Extracting text from PDF…';
     const text = await extractPdfText(file);
     if (!text.trim()) {
       pdfStatus.textContent = '❌ No text found. Is this a scanned / image-only PDF?';

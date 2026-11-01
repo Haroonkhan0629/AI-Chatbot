@@ -133,8 +133,9 @@ async function indexDocument(docId, text) {
 async function getIndexStatus(docId) {
   const collection = await getCollection();
   const res = await collection.get({ ids: [markerId(docId)], include: ['metadatas'] });
-  if (!res.ids.length) return 'processing';
-  return res.metadatas[0] && res.metadatas[0].error ? 'error' : 'ready';
+  if (!res.ids.length) return { status: 'processing' };
+  const error = res.metadatas[0] && res.metadatas[0].error;
+  return error ? { status: 'error', error } : { status: 'ready' };
 }
 
 /** Embed the question, search this document's chunks in Chroma, return the top-k chunk texts. */
