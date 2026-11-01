@@ -9,8 +9,33 @@ const conversationHistory = []; // Sent to backend for context-aware responses
 const _isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 const apiUrl = path => _isLocal ? path : `/.netlify/functions${path}`;
 
+// Wake a sleeping Chroma server: on page load, then every 10 min while the page is open
+// (Render's free tier sleeps after 15 min idle). Failures are ignored on purpose.
+const warmChroma = () => fetch(apiUrl('/chroma_warmup')).catch(() => {});
+warmChroma();
+setInterval(warmChroma, 10 * 60 * 1000);
+
 // RAG state — UUID returned by upload_pdf and stored server-side in PostgreSQL
-let currentPdfText = null;
+let currentPdfText = null; // truthy once the document is indexed
+let currentDocId = null;   // ChromaDB document id used for retrieval
+
+/** Send text to the background ingest function, then poll until it is searchable. */
+async function ingestDocument(text) {
+  const docId = crypto.randomUUID();
+  const resp = await fetch(apiUrl('/rag_ingest-background'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ docId, text }),
+  });
+  if (!resp.ok) throw new Error('Could not start document indexing.');
+  for (let i = 0; i < 180; i++) {
+    await new Promise(r => setTimeout(r, 2000));
+    const s = await (await fetch(apiUrl('/rag_status') + '?docId=' + docId)).json();
+    if (s.status === 'ready') return docId;
+    if (s.status === 'error' || s.error) throw new Error('Document indexing failed.');
+  }
+  throw new Error('Document indexing timed out.');
+}
 
 // Get references to main UI elements
 const messagesContainer = document.getElementById('messages-container');
@@ -72,6 +97,8 @@ pdfInput.addEventListener('change', async () => {
       pdfInput.value = '';
       return;
     }
+    pdfStatus.textContent = 'Indexing document...';
+    currentDocId = await ingestDocument(text);
     currentPdfText = text;
     pdfStatus.textContent = `✅ ${file.name} — ready`;
     pdfStatus.className = 'pdf-status success';
@@ -89,6 +116,7 @@ pdfInput.addEventListener('change', async () => {
 
 clearPdfBtn.addEventListener('click', () => {
   currentPdfText = null;
+  currentDocId = null;
   pdfStatus.textContent = '';
   pdfStatus.className = 'pdf-status';
   clearPdfBtn.style.display = 'none';
@@ -105,7 +133,7 @@ async function makeRAGRequest(message) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       // Only the prompt and UUID are sent — all embeddings are retrieved from the DB
-      body: JSON.stringify({ prompt: message, pdfText: currentPdfText }),
+      body: JSON.stringify({ prompt: message, docId: currentDocId }),
     });
     return await resp.json();
   } catch (err) {

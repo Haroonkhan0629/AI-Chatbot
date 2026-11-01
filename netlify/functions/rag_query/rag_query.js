@@ -1,19 +1,24 @@
-﻿/**
+/**
  * Netlify Function -- POST /.netlify/functions/rag_query
  *
- * Receives { prompt, pdfText } where pdfText is already extracted by the
- * browser. No DB, no HuggingFace -- just passes the document text directly
- * to Groq as context. Works within Netlify's 10 s function timeout.
+ * Body: { prompt, docId }. Embeds the prompt, retrieves the top semantic chunks
+ * for that document from ChromaDB, and sends only those chunks to Groq.
+ * Document ingestion (chunking/embedding/storing) happens beforehand in
+ * rag_ingest-background, so this path is just 1 embed + 1 query + 1 LLM call.
  *
- * Required Netlify environment variables:
- *   GROQ_API_KEY -- from https://console.groq.com/keys
+ * Retrieval is in rag_shared/rag.js; the answer comes from a direct call to Groq.
+ *
+ * Env: GROQ_API_KEY, HUGGINGFACE_API_KEY, and CHROMA_URL (self-hosted) or
+ * CHROMA_API_KEY + CHROMA_TENANT + CHROMA_DATABASE (Chroma Cloud)
  */
 
 'use strict';
 
-const GROQ_API_URL   = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_MODEL     = 'openai/gpt-oss-120b';
-const MAX_TEXT_CHARS = 80000; // ~60K tokens, well within Groq 128K context limit
+const { findRelevantChunks } = require('../rag_shared/rag');
+
+const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_MODEL   = 'openai/gpt-oss-120b';
+const TOP_K        = 5;
 
 const CORS = {
   'Content-Type': 'application/json',
@@ -22,48 +27,79 @@ const CORS = {
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 
+const SYSTEM_PROMPT = `You are a helpful assistant. Answer the user's question using ONLY the provided document excerpts. If they do not contain enough information to answer, say so clearly.
+
+Think step by step before answering. Use exactly this format:
+Reasoning: <short step-by-step reasoning that cites the relevant excerpts>
+Answer: <final answer for the user>
+
+Example 1
+Excerpts:
+Q3 revenue was $4.2M, up from $3.5M in Q2.
+---
+Operating costs in Q3 were $3.0M.
+
+Question: What was the Q3 operating profit?
+Reasoning: 1) Q3 revenue is $4.2M. 2) Q3 operating costs are $3.0M. 3) Profit = revenue - costs = $4.2M - $3.0M = $1.2M.
+Answer: The Q3 operating profit was $1.2M ($4.2M revenue minus $3.0M operating costs).
+
+Example 2
+Excerpts:
+The warranty covers manufacturing defects for 24 months from purchase.
+---
+Accidental damage is not covered.
+
+Question: Is a cracked screen from a drop covered after 6 months?
+Reasoning: 1) The warranty is 24 months, so 6 months is within the period. 2) A drop is accidental damage. 3) The excerpts say accidental damage is not covered.
+Answer: No. Although it is within the 24-month warranty, accidental damage such as a drop is not covered.
+
+Example 3
+Excerpts:
+The study enrolled 120 participants across three sites.
+
+Question: What was the dropout rate?
+Reasoning: 1) The excerpts give the enrollment count (120). 2) They do not mention dropouts or completion numbers. 3) The rate cannot be derived.
+Answer: The document does not contain enough information to determine the dropout rate. It only states that 120 participants were enrolled.`;
+
+// Return only the final answer; fall back to the full text if the model skips the format.
+const finalAnswer = text => {
+  const i = text.lastIndexOf('Answer:');
+  return i === -1 ? text.trim() : text.slice(i + 'Answer:'.length).trim();
+};
+
+const reply = (statusCode, body) => ({ statusCode, headers: CORS, body: JSON.stringify(body) });
+
 exports.handler = async function (event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: CORS, body: '' };
   try {
-    const { prompt, pdfText } = JSON.parse(event.body || '{}');
+    const { prompt, docId } = JSON.parse(event.body || '{}');
 
     const groqKey = process.env.GROQ_API_KEY;
-    if (!groqKey)
-      return { statusCode: 500, headers: CORS, body: JSON.stringify({ error: 'GROQ_API_KEY not configured.' }) };
-    if (!prompt)
-      return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'prompt is required.' }) };
-    if (!pdfText)
-      return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'pdfText is required.' }) };
+    if (!groqKey) return reply(500, { error: 'GROQ_API_KEY not configured.' });
+    if (!prompt)  return reply(400, { error: 'prompt is required.' });
+    if (!docId)   return reply(400, { error: 'docId is required.' });
 
-    // Truncate if the document is very large (protects Groq context limit)
-    const context = pdfText.length > MAX_TEXT_CHARS
-      ? pdfText.slice(0, MAX_TEXT_CHARS) + '\n\n[Document truncated due to length]'
-      : pdfText;
-
-    const messages = [
-      {
-        role: 'system',
-        content:
-          "You are a helpful assistant. Answer the user's question using ONLY the " +
-          'provided document context. If the context does not contain enough ' +
-          'information to answer, say so clearly.',
-      },
-      { role: 'user', content: 'Document:\n' + context + '\n\nQuestion: ' + prompt },
-    ];
+    const chunks = await findRelevantChunks(docId, prompt, TOP_K);
+    if (!chunks.length) return reply(404, { error: 'No indexed content found for this document.' });
 
     const groqResp = await fetch(GROQ_API_URL, {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + groqKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: GROQ_MODEL, messages, max_tokens: 1024 }),
+      body: JSON.stringify({
+        model: GROQ_MODEL,
+        max_tokens: 1024,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: 'Excerpts:\n' + chunks.join('\n---\n') + '\n\nQuestion: ' + prompt },
+        ],
+      }),
     });
-    if (!groqResp.ok)
-      return { statusCode: 502, headers: CORS, body: JSON.stringify({ error: 'Groq API returned HTTP ' + groqResp.status + '.' }) };
+    if (!groqResp.ok) return reply(502, { error: 'Groq API returned HTTP ' + groqResp.status + '.' });
 
-    const data   = await groqResp.json();
-    const answer = data.choices[0].message.content;
-    return { statusCode: 200, headers: CORS, body: JSON.stringify({ response: answer }) };
+    const data = await groqResp.json();
+    return reply(200, { response: finalAnswer(data.choices[0].message.content) });
   } catch (err) {
     console.error('rag_query error:', err);
-    return { statusCode: 500, headers: CORS, body: JSON.stringify({ error: err.message }) };
+    return reply(500, { error: err.message });
   }
 };

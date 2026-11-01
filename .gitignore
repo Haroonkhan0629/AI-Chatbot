@@ -6,3 +6,8 @@ DS*/
 .venv/
 venv/
 
+
+node_modules/
+
+# Local Netlify folder
+.netlify
