@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "private": true,
   "dependencies": {
-    "@huggingface/inference": "^4.13.32",
     "chromadb": "^3.0.0"
   }
 }

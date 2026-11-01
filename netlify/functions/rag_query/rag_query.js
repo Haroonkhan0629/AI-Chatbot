@@ -8,7 +8,7 @@
  *
  * Retrieval is in rag_shared/rag.js; the answer comes from a direct call to Groq.
  *
- * Env: GROQ_API_KEY, HUGGINGFACE_API_KEY, and CHROMA_URL (self-hosted) or
+ * Env: GROQ_API_KEY, GEMINI_API_KEY, and CHROMA_URL (self-hosted) or
  * CHROMA_API_KEY + CHROMA_TENANT + CHROMA_DATABASE (Chroma Cloud)
  */
 

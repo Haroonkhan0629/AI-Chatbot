@@ -11,11 +11,11 @@
  */
 
 const { CloudClient, ChromaClient } = require('chromadb');
-const { InferenceClient } = require('@huggingface/inference');
 
-const EMBED_MODEL = process.env.EMBED_MODEL || 'BAAI/bge-small-en-v1.5';
+const EMBED_MODEL = process.env.EMBED_MODEL || 'gemini-embedding-001';
+const EMBED_DIM = 384;         // kept at 384 so it matches vectors already stored in Chroma
 const COLLECTION = process.env.CHROMA_COLLECTION || 'pdf_chunks';
-const EMBED_BATCH = 64;        // texts per Hugging Face call
+const EMBED_BATCH = 100;       // texts per Gemini call (API maximum)
 const ADD_BATCH = 100;         // chunks per Chroma write
 const BREAK_PERCENTILE = 0.9;  // cut where sentence-to-sentence distance is in the top 10%
 const MAX_CHUNK_CHARS = 1500;
@@ -25,13 +25,39 @@ const QUERY_EMBED_TIMEOUT_MS = 5000;
 // Written last when indexing; its presence means "all chunks are stored".
 const markerId = docId => docId + ':done';
 
-/** Texts in -> one vector per text out (Hugging Face), sent in batches. */
-async function embed(texts) {
-  const hf = new InferenceClient(process.env.HUGGINGFACE_API_KEY);
+/** Texts in -> one unit-length vector per text out (Google Gemini embeddings, free tier), sent in batches. */
+async function embed(texts, taskType = 'RETRIEVAL_DOCUMENT') {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${EMBED_MODEL}:batchEmbedContents`;
   const vectors = [];
   for (let i = 0; i < texts.length; i += EMBED_BATCH) {
-    const batch = texts.slice(i, i + EMBED_BATCH).map(t => t.replace(/\n/g, ' '));
-    vectors.push(...(await hf.featureExtraction({ model: EMBED_MODEL, inputs: batch, provider: 'hf-inference' })));
+    const body = JSON.stringify({
+      requests: texts.slice(i, i + EMBED_BATCH).map(t => ({
+        model: 'models/' + EMBED_MODEL,
+        content: { parts: [{ text: t }] },
+        taskType,
+        outputDimensionality: EMBED_DIM,
+      })),
+    });
+    let data;
+    for (let attempt = 0; ; attempt++) {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': process.env.GEMINI_API_KEY },
+        body,
+      });
+      data = await resp.json().catch(() => ({}));
+      if (resp.ok) break;
+      if (resp.status === 429 && attempt < 5) { // free-tier rate limit: wait and retry
+        await new Promise(r => setTimeout(r, 5000 * (attempt + 1)));
+        continue;
+      }
+      throw new Error('Embedding failed: ' + ((data.error && data.error.message) || resp.status));
+    }
+    // Reduced-size Gemini vectors are not normalized, so normalize for Chroma's distance metric.
+    for (const { values } of data.embeddings) {
+      const norm = Math.sqrt(values.reduce((s, x) => s + x * x, 0)) || 1;
+      vectors.push(values.map(x => x / norm));
+    }
   }
   return vectors;
 }
@@ -122,7 +148,7 @@ async function indexDocument(docId, text) {
     console.error('indexDocument error:', err);
     await collection.upsert({
       ids: [markerId(docId)],
-      embeddings: [new Array(384).fill(0)], // 384 = bge-small dimensions; Chroma needs some vector
+      embeddings: [new Array(EMBED_DIM).fill(0)], // Chroma needs some vector of the right size
       documents: ['error'],
       metadatas: [{ docId, marker: true, error: String(err.message).slice(0, 200) }],
     }).catch(() => {});
@@ -144,7 +170,7 @@ async function findRelevantChunks(docId, question, k) {
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error('Query embedding timed out')), QUERY_EMBED_TIMEOUT_MS);
   });
-  const [queryVector] = await Promise.race([embed([question]), timeout]).finally(() => clearTimeout(timer));
+  const [queryVector] = await Promise.race([embed([question], 'RETRIEVAL_QUERY'), timeout]).finally(() => clearTimeout(timer));
 
   const collection = await getCollection();
   const res = await collection.query({
